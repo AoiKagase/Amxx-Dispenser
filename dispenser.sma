@@ -3,9 +3,8 @@
 
 #include <amxmodx>
 #include <amxmisc>
-#include <fakemeta>
 #include <cstrike>
-#include <engine>
+#include <fakemeta>
 #include <hamsandwich>
 #include <xs>
 #include <fun>
@@ -25,7 +24,7 @@
 
 #define PREFIX_CHAT "^1[^4P4E^1]"
 
-#define dispenser_classname "bdispenser"
+#define dispenser_classname "dispenser"
 #define dispenser_classmove "dispenser_move"
 
 #define is_valid_player(%1) (1 <= %1 <= MaxClients)
@@ -40,7 +39,7 @@ new const Float:xStuckSize[][3] =
 	{0.0, 0.0, 3.0}, {0.0, 0.0, -3.0}, {0.0, 3.0, 0.0}, {0.0, -3.0, 0.0}, {3.0, 0.0, 0.0}, {-3.0, 0.0, 0.0}, {-3.0, 3.0, 3.0}, {3.0, 3.0, 3.0}, {3.0, -3.0, 3.0}, {3.0, 3.0, -3.0}, {-3.0, -3.0, 3.0}, {3.0, -3.0, -3.0}, {-3.0, 3.0, -3.0}, {-3.0, -3.0, -3.0},
 	{0.0, 0.0, 4.0}, {0.0, 0.0, -4.0}, {0.0, 4.0, 0.0}, {0.0, -4.0, 0.0}, {4.0, 0.0, 0.0}, {-4.0, 0.0, 0.0}, {-4.0, 4.0, 4.0}, {4.0, 4.0, 4.0}, {4.0, -4.0, 4.0}, {4.0, 4.0, -4.0}, {-4.0, -4.0, 4.0}, {4.0, -4.0, -4.0}, {-4.0, 4.0, -4.0}, {-4.0, -4.0, -4.0},
 	{0.0, 0.0, 5.0}, {0.0, 0.0, -5.0}, {0.0, 5.0, 0.0}, {0.0, -5.0, 0.0}, {5.0, 0.0, 0.0}, {-5.0, 0.0, 0.0}, {-5.0, 5.0, 5.0}, {5.0, 5.0, 5.0}, {5.0, -5.0, 5.0}, {5.0, 5.0, -5.0}, {-5.0, -5.0, 5.0}, {5.0, -5.0, -5.0}, {-5.0, 5.0, -5.0}, {-5.0, -5.0, -5.0}
-}
+};
 
 enum E_CVARS
 {
@@ -75,40 +74,40 @@ enum E_CVARS
 	Float:CV_LVL4_AMOUNT_ARMOR,
 
 	// Dispenser health.
-	CV_LVL1_DISP_HEALTH,
-	CV_LVL2_DISP_HEALTH,
-	CV_LVL3_DISP_HEALTH,
-	CV_LVL4_DISP_HEALTH,
+	CV_LVL1_DISPENSER_HEALTH,
+	CV_LVL2_DISPENSER_HEALTH,
+	CV_LVL3_DISPENSER_HEALTH,
+	CV_LVL4_DISPENSER_HEALTH,
 
-	CVAR_DISTANCE_LIFE,
-	CVAR_BONUS_DESTROY,
-	CVAR_GLOW,
+	Float:CV_RECOVERY_RADIUS,
+	CV_DESTRUCTION_BONUS,
 
-	CVAR_GIVE_MONEY_TIME,
-	CVAR_GIVE_MONEY_DISTANCE,
-	CVAR_GIVE_MONEY_MIN,
-	CVAR_GIVE_MONEY_MAX,
+	CV_GIVE_MONEY_TIME,
+	Float:CV_GIVE_MONEY_DISTANCE,
+	CV_GIVE_MONEY_MIN,
+	CV_GIVE_MONEY_MAX,
 
-	CVAR_LIMIT_PER_PLAYER,
-	CVAR_REMOVE_ROUND_RESTART,
+	CV_GIVE_AMMO_TIME,
+	Float:CV_GIVE_AMMO_DISTANCE,
+	CV_GIVE_AMMO_MIN,
+	CV_GIVE_AMMO_MAX,
 
-	CVAR_LIGHT,
-	CVAR_LIMIT_GLOBAL,
-	CVAR_AUTOMATIC_STUCK,
-	CVAR_SHOW_LIFE_SPRITE,
-	CVAR_IDLE_SOUND,
-	CVAR_GIVE_AMMO_MIN,
-	CVAR_GIVE_AMMO_MAX,
-	CVAR_GIVE_AMMO_TIME,
-	CVAR_GIVE_AMMO_DISTANCE,
-	CVAR_EFFECT_LVL_4,
-	CVAR_ONEMODEL,
-	CVAR_USE_DROP_TO_BUY,
-	CVAR_SHOW_LINE_LIFE,
-	CVAR_ALL_LVL_GIVE_AMMO,
-    CVAR_DISPENSER_HP,
-	CVAR_INSTANT_PLANT
-}
+	CV_LIMIT_PER_PLAYER,
+	CV_LIMIT_PER_TEAM,
+
+	CV_GLOW,
+	CV_LIGHT,
+	CV_SHOW_LINE,
+	CV_SHOW_LIFE_SPRITE,
+	CV_EFFECT_LVL_4,
+	CV_IDLE_SOUND,
+
+	CV_AUTOMATIC_STUCK,
+	CV_REMOVE_ROUND_RESTART,
+	CV_DROP_TO_BUY,
+	CV_GIVE_AMMO_ALL_LVL,
+	CV_INSTANT_PLANT
+};
 
 new const g_CVarString	[E_CVARS][][] =
 {
@@ -142,77 +141,144 @@ new const g_CVarString	[E_CVARS][][] =
 	{"dispenser_level3_amount_armor",	"2.0",	"float"},
 	{"dispenser_level4_amount_armor",	"2.5",	"float"},
 
+	{"dispenser_recovery_radius",		"500.0","float"},
+	{"dispenser_destruction_bonus",		"1000",	"num"},
+
+	// Give Money Settings.
+	{"dispenser_give_money_time",		"5",	"num"},
+	{"dispenser_give_money_distance",	"200.0","float"},
+	{"dispenser_give_money_min",		"10",	"num"},
+	{"dispenser_give_money_max",		"50",	"num"},
+
+	// Give Ammo Settings.
+	{"dispenser_give_ammo_time",		"1",	"num"},
+	{"dispenser_give_ammo_distance",	"400.0","float"},
+	{"dispenser_give_ammo_min",			"1",	"num"},
+	{"dispenser_give_ammo_max",			"1",	"num"},
+
+	{"dispenser_limit_per_player",		"1",	"num"},
+	{"dispenser_limit_per_team",		"5",	"num"},
+
+	{"dispenser_glow",					"1",	"num"},
+	{"dispenser_light",					"1",	"num"},
+	{"dispenser_show_line",				"1",	"num"},
+	{"dispenser_show_life_sprite",		"0",	"num"},
+	{"dispenser_level4_effect",			"0",	"num"},
+	{"dispenser_idle_sound",			"1",	"num"},
+
+	{"dispenser_automatic_stuck",		"1",	"num"},
+
+	{"dispenser_restart_remove",		"1",	"num"},
+	{"dispenser_drop_to_buy",			"1",	"num"},
+
+	// Give Ammo Dispenser Level. 1 = All Level. 0 = Level 4 only.
+	{"dispenser_give_ammo_all_level",	"1",	"num"},
+	{"dispenser_instant_plant",			"1",	"num"},
 };
 
-new g_cvarPointer	[E_CVARS];
-new g_cvars			[E_CVARS];
+new g_CvarPointer	[E_CVARS];
+new g_Cvars			[E_CVARS];
 
-new g_DamageSounds[][] =
+new const g_DamageSounds[][] =
 {
 	"debris/metal1.wav",
 	"debris/metal2.wav",
 	"debris/metal3.wav"
-}
+};
 
-new xBulletsSounds[][] =
+new const g_BulletsSounds[][] =
 {
 	"csr/dispenser_bullet_chain.wav",
 	"csr/dispenser_bullet_chain2.wav"
-}
+};
 
-enum
+enum E_DISPENSER_SOUND
 {
-	ANIM_LVL1_IDLE,
-	ANIM_LVL1_BUILD,
-	ANIM_LVL2_IDLE,
-	ANIM_LVL2_BUILD,
-	ANIM_LVL3_IDLE,
-	ANIM_LVL3_BUILD
-}
+	SND_ACTIVE,
+	SND_FAIL,
+	SND_EXPLODE,
+	SND_IDLE,
+};
+
+new const g_DispenserSound[][] = 
+{
+	"dispenser/dispenser_generate_metal.wav",
+	"dispenser/dispenser_fail.wav",
+	"dispenser/dispenser_explode.wav",
+	"dispenser/dispenser_idle.wav",
+};
 
 enum
 {
 	BUILD_DISPENSER_YES,
 	BUILD_DISPENSER_NO,
-}
+};
 
-new g_DispActive[] = "csr/dispenser_generate_metal.wav"
-new g_DispSndFail[] = "csr/dispenser_fail.wav"
-new g_DispSndDestroy[] = "csr/dispenser_explode.wav"
-new g_DispSndIdle[] = "csr/dispenser_idle.wav"
+enum E_MODELS
+{
+	MDL_BLUEPRINT,
+	MDL_DISPENSER,
+	MDL_GIBS_R,
+	MDL_GIBS_B,
+};
 
-new g_DispModelPrint[] = "models/csr/dispenser_blueprint.mdl"
-new g_DispModel[] = "models/csr/dispenser_normal.mdl"
-new g_DispModelVip[] = "models/csr/dispenser_vip.mdl"
-new g_DispModelGibsR[] = "models/csr/dispenser_gibs_r.mdl"
-new g_DispModelGibsB[] = "models/csr/dispenser_gibs_b.mdl"
-new g_DispSprSmoke[] = "sprites/csr/dispenser_smoke.spr"
-new g_DispSprHealLifeB[] = "sprites/csr/healbeam_blue.spr"
-new g_DispSprHealLifeR[] = "sprites/csr/healbeam_red.spr"
+enum E_SPRITES
+{
+	SPR_SMOKE,
+	SPR_HEAL_LIFE_R,
+	SPR_HEAL_LIFE_B,
+};
 
-new Float:g_DispOrigin[33][3], Float:f_TimeFloodDispTouch[33], Float:f_TimeGiveMoney[33], g_BeamColor[33][3], g_DispPlayerCount[33]
-new g_PrecSprLife, g_PrecSprSmoke, g_Cvar[g_MaxCvars], g_PrecSprFlare3, g_PrecSprHealLifeB, g_PrecSprHealLifeR, g_PrecDispModelGibsR, g_PrecDispModelGibsB
-new g_PlayerMovingDisp[33], Float:f_TimePostThink[33], g_iPlantOk[33], Float:f_TimePlantHud[33], Float:f_TimeGiveAmmo[33]
-new xStuck[33], xModelIndex[2]
+new const g_DispenserModels[][] = 
+{
+	"models/dispenser/dispenser_blueprint.mdl",
+	"models/dispenser/dispenser.mdl",
+	"models/dispenser/dispenser_gibs_r.mdl",
+	"models/dispenser/dispenser_gibs_b.mdl",
+};
+
+new const g_DispenserSprites[][] =
+{
+	"sprites/dispenser/dispenser_smoke.spr",
+	"sprites/dispenser/healbeam_blue.spr",
+	"sprites/dispenser/healbeam_red.spr",
+};
+
+new Float:g_DispOrigin[33][3], 
+	Float:f_TimeFloodDispTouch[33], 
+	Float:f_TimeGiveMoney[33], 
+	g_BeamColor[33][3], 
+	g_DispPlayerCount[33];
+
+new g_PrecacheModels	[E_MODELS], 
+	g_PrecacheSprites	[E_SPRITES];
+
+new g_PlayerMovingDisp[33], 
+	Float:f_TimePostThink[33],
+	g_iPlantOk[33], 
+	Float:f_TimePlantHud[33], 
+	Float:f_TimeGiveAmmo[33];
+
+new xStuck[33], xModelIndex;
 
 #define DISPENSER_OWNER pev_iuser2
 #define DISPENSER_LEVEL pev_iuser3
-#define DISPENSER_TEAM pev_iuser4
+#define DISPENSER_TEAM 	pev_iuser4
 
 // ====================================================
 //  Register Cvars.
 // ====================================================
 register_cvars()
 {
-	for(new i = 0; i < E_CVARS; i++)
+	for(new i = 0; i < sizeof(g_CVarString); i++)
 	{
-		g_cvarPointer[i] = create_cvar(g_CVarString[i][0], g_CVarString[i][1]);
+		g_CvarPointer[i] = create_cvar(g_CVarString[i][0], g_CVarString[i][1]);
 		if (equali(g_CVarString[i][2], "num"))
-			bind_pcvar_num(g_cvarPointer[i], g_cvars[i]);
+			bind_pcvar_num(g_CvarPointer[i], g_Cvars[i]);
 		else if(equali(g_CVarString[i][2], "float"))
-			bind_pcvar_float(g_cvarPointer[i], Float:g_cvars[i]);
+			bind_pcvar_float(g_CvarPointer[i], Float:g_Cvars[i]);
 		
-		hook_cvar_change(g_cvarPointer[i], "cvar_change_callback");
+		hook_cvar_change(g_CvarPointer[i], "cvar_change_callback");
 	}
 }
 
@@ -221,88 +287,75 @@ register_cvars()
 // ====================================================
 public cvar_change_callback(pcvar, const old_value[], const new_value[])
 {
-	for(new i = 0; i < E_CVARS; i++)
+	for(new i = 0; i < sizeof(g_CVarString); i++)
 	{
-		if (g_cvarPointer[i] == pcvar)
+		if (g_CvarPointer[E_CVARS:i] == pcvar)
 		{
-			if (equali(g_CVarString[i][2], "num"))
-				g_cvars[i] = str_to_num(new_value);
-			else if (equali(g_CVarString[i][2], "float"))
-				g_cvars[i] = _:str_to_float(new_value);
+			if (equali(g_CVarString[E_CVARS:i][2], "num"))
+				g_Cvars[E_CVARS:i] = str_to_num(new_value);
+			else if (equali(g_CVarString[E_CVARS:i][2], "float"))
+				g_Cvars[E_CVARS:i] = _:str_to_float(new_value);
 
-			console_print(0,"[Dispenser Debug]: Changed Cvar '%s' => '%s' to '%s'", g_CVarString[i][0], old_value, new_value);
+			console_print(0,"[Dispenser Debug]: Changed Cvar '%s' => '%s' to '%s'", g_CVarString[E_CVARS:i][0], old_value, new_value);
 		}
 	}
 }
 
 public plugin_init()
 {
-	register_plugin(PLUGIN, VERSION, AUTHOR)
+	register_plugin(PLUGIN, VERSION, AUTHOR);
 	
-	register_forward(FM_TraceLine, "fw_TraceLinePost", true)
-	register_think(dispenser_classname, "tk_Dispenser")
-	register_touch(dispenser_classname, "player", "fw_DispenserTouch")
-	register_event("HLTV", "xEventNewRound", "a", "1=0", "2=0")
-	register_forward(FM_CmdStart, "fw_CmdStart")
+	register_event("HLTV", "xEventNewRound", "a", "1=0", "2=0");
+	register_forward(FM_TraceLine, "fw_TraceLinePost", true);
+	register_forward(FM_CmdStart, "fw_CmdStart");
 
-	RegisterHam(Ham_TakeDamage, "func_breakable", "ham_TakeDamagePost", true)
-	RegisterHam(Ham_TakeDamage, "func_breakable", "ham_TakeDamagePre", false)
-	RegisterHam(Ham_TraceAttack, "func_breakable", "ham_TraceAttackPre", false)
+	RegisterHam(Ham_Touch, "player", "fw_DispenserTouch");
+	RegisterHam(Ham_Think, dispenser_classname, "tk_Dispenser");
+	RegisterHam(Ham_TakeDamage, "func_breakable", "ham_TakeDamagePost", true);
+	RegisterHam(Ham_TakeDamage, "func_breakable", "ham_TakeDamagePre", false);
+	RegisterHam(Ham_TraceAttack, "func_breakable", "ham_TraceAttackPre", false);
 
-	g_Cvar[CVAR_INSTANT_PLANT] = create_cvar("csr_disp_instant_plant", "1", .has_min = true, .min_val = 0.0, .has_max = true, .max_val = 1.0)
-	g_Cvar[CVAR_ALL_LVL_GIVE_AMMO] = create_cvar("csr_disp_all_lvl_give_ammo", "1", .has_min = true, .min_val = 0.0, .has_max = true, .max_val = 1.0)
-	g_Cvar[CVAR_SHOW_LINE_LIFE] = create_cvar("csr_disp_show_line_life", "1", .has_min = true, .min_val = 0.0, .has_max = true, .max_val = 1.0)
-	g_Cvar[CVAR_USE_DROP_TO_BUY] = create_cvar("csr_disp_use_drop_to_buy", "1", .has_min = true, .min_val = 0.0, .has_max = true, .max_val = 1.0)
-	g_Cvar[CVAR_ONEMODEL] = create_cvar("csr_disp_onemodel", "1", .has_min = true, .min_val = 0.0, .has_max = true, .max_val = 1.0)
-	g_Cvar[CVAR_DISTANCE_LIFE] = create_cvar("csr_disp_dist_life", "500")
-	g_Cvar[CVAR_BONUS_DESTROY] = create_cvar("csr_disp_bonus_destroy", "1000")
-	g_Cvar[CVAR_GLOW] = create_cvar("csr_disp_glow", "1", .has_min = true, .min_val = 0.0, .has_max = true, .max_val = 1.0)
+	xRegisterSay("disp", "xBuyDispenser");
+	xRegisterSay("dispenser", "xBuyDispenser");
+	xRegisterSay("destroy", "xDestroyDispenser");
+	xRegisterSay("destruir", "xDestroyDispenser");
+	xRegisterSay("distruir", "xDestroyDispenser");
 
-	g_Cvar[CVAR_GIVE_MONEY_TIME] = create_cvar("csr_disp_give_money_time", "5", .has_min = true, .min_val = 0.0)
-	g_Cvar[CVAR_GIVE_MONEY_DISTANCE] = create_cvar("csr_disp_give_money_dist", "200")
-	g_Cvar[CVAR_GIVE_MONEY_MIN] = create_cvar("csr_disp_give_money_min", "10")
-	g_Cvar[CVAR_GIVE_MONEY_MAX] = create_cvar("csr_disp_give_money_max", "50")
+	register_clcmd("drop", "xHookDrop");
 
-	g_Cvar[CVAR_LIMIT_PER_PLAYER] = create_cvar("csr_disp_limit_per_player", "3")
-	g_Cvar[CVAR_REMOVE_ROUND_RESTART] = create_cvar("csr_disp_remove_on_rr", "1", .has_min = true, .min_val = 0.0, .has_max = true, .max_val = 1.0)
-	g_Cvar[CVAR_LIGHT] = create_cvar("csr_disp_light", "0", .has_min = true, .min_val = 0.0, .has_max = true, .max_val = 1.0)
-	g_Cvar[CVAR_LIMIT_GLOBAL] = create_cvar("csr_disp_limit_global", "5")
-	g_Cvar[CVAR_AUTOMATIC_STUCK] = create_cvar("csr_disp_automatic_stuck", "1", .has_min = true, .min_val = 0.0, .has_max = true, .max_val = 1.0)
-	g_Cvar[CVAR_SHOW_LIFE_SPRITE] = create_cvar("csr_disp_show_life_sprite", "0", .has_min = true, .min_val = 0.0, .has_max = true, .max_val = 1.0)
-	g_Cvar[CVAR_IDLE_SOUND] = create_cvar("csr_disp_idle_sound", "1", .has_min = true, .min_val = 0.0, .has_max = true, .max_val = 1.0)
-
-	g_Cvar[CVAR_GIVE_AMMO_MIN] = create_cvar("csr_disp_give_ammo_min", "1")
-	g_Cvar[CVAR_GIVE_AMMO_MAX] = create_cvar("csr_disp_give_ammo_max", "1")
-	g_Cvar[CVAR_GIVE_AMMO_DISTANCE] = create_cvar("csr_disp_give_ammo_dist", "400")
-	g_Cvar[CVAR_GIVE_AMMO_TIME] = create_cvar("csr_disp_give_ammo_time", "1", .has_min = true, .min_val = 0.0)
-	g_Cvar[CVAR_EFFECT_LVL_4] = create_cvar("csr_disp_effect_lvl4", "0")
-	
-
-	xRegisterSay("disp", "xBuyDispenser")
-	xRegisterSay("dispenser", "xBuyDispenser")
-	xRegisterSay("destroy", "xDestroyDispenser")
-	xRegisterSay("destruir", "xDestroyDispenser")
-	xRegisterSay("distruir", "xDestroyDispenser")
-
-	register_clcmd("drop", "xHookDrop")
-
-	set_task(0.1, "xCheckStuck", _, _, _, "b")
+	set_task(0.1, "xCheckStuck", _, _, _, "b");
 	//set_task(500.0, "xSitePub", _, _, _, "b")
+}
+
+stock xRegisterSay(szsay[], szfunction[])
+{
+	static sztemp[64];
+	formatex(sztemp, 63 , "say /%s", szsay);
+	register_clcmd(sztemp, szfunction);
+	
+	formatex(sztemp, 63 , "say .%s", szsay);
+	register_clcmd(sztemp, szfunction);
+	
+	formatex(sztemp, 63 , "say_team /%s", szsay);
+	register_clcmd(sztemp, szfunction );
+	
+	formatex(sztemp, 63 , "say_team .%s", szsay);
+	register_clcmd(sztemp, szfunction);
 }
 
 public xHookDrop(id)
 {
-	static weapon
+	static weapon;
 
-	weapon = get_user_weapon(id)
+	weapon = get_user_weapon(id);
 
-	if(weapon == CSW_KNIFE && get_pcvar_num(g_Cvar[CVAR_USE_DROP_TO_BUY]))
+	if(weapon == CSW_KNIFE && g_Cvars[CV_DROP_TO_BUY])
 	{
-		xBuyDispenser(id)
-		return PLUGIN_HANDLED
+		xBuyDispenser(id);
+		return PLUGIN_HANDLED;
 	}
 	
-	return PLUGIN_CONTINUE
+	return PLUGIN_CONTINUE;
 }
 
 /*
@@ -313,7 +366,7 @@ public xSitePub()
 
 public xCheckStuck()
 {
-	if(get_pcvar_num(g_Cvar[CVAR_AUTOMATIC_STUCK]))
+	if(get_pcvar_num(g_Cvars[CVAR_AUTOMATIC_STUCK]))
 	{
 		static players[32], pnum, player
 		get_players(players, pnum)
@@ -405,8 +458,7 @@ public plugin_precache()
 	g_PrecSprHealLifeR = precache_model(g_DispSprHealLifeR)
 	g_PrecDispModelGibsR = precache_model(g_DispModelGibsR)
 	g_PrecDispModelGibsB = precache_model(g_DispModelGibsB)
-	xModelIndex[0] = precache_model(g_DispModelVip)
-	xModelIndex[1] = precache_model(g_DispModel)
+	xModelIndex = precache_model(g_DispModel)
 
 	precache_model(g_DispModelPrint)
 	precache_model(g_DispModel)
@@ -426,7 +478,7 @@ public plugin_precache()
 
 public xEventNewRound()
 {
-	if(get_pcvar_num(g_Cvar[CVAR_REMOVE_ROUND_RESTART]))
+	if(get_pcvar_num(g_Cvars[CVAR_REMOVE_ROUND_RESTART]))
 		UTIL_DestroyDispensers()
 }
 
@@ -510,7 +562,7 @@ public xBuyDispenser(id)
 		return PLUGIN_HANDLED
 	}
 
-	if(g_DispPlayerCount[id] >= get_pcvar_num(g_Cvar[CVAR_LIMIT_PER_PLAYER]))
+	if(g_DispPlayerCount[id] >= get_pcvar_num(g_Cvars[CVAR_LIMIT_PER_PLAYER]))
 	{
 		client_print_color(id, print_team_default, "%s ^3Você já atingiu o limite de ^4Dispenser ^3.", PREFIX_CHAT)
 		client_cmd(id, "spk %s", g_DispSndFail)
@@ -518,7 +570,7 @@ public xBuyDispenser(id)
 		return PLUGIN_HANDLED
 	}
 
-	/*if((xLimitGlobal[0] >= get_pcvar_num(g_Cvar[CVAR_LIMIT_GLOBAL]) && get_user_team(id) == 1) || (xLimitGlobal[1] >= get_pcvar_num(g_Cvar[CVAR_LIMIT_GLOBAL]) && get_user_team(id) == 2))
+	/*if((xLimitGlobal[0] >= get_pcvar_num(g_Cvars[CVAR_LIMIT_GLOBAL]) && get_user_team(id) == 1) || (xLimitGlobal[1] >= get_pcvar_num(g_Cvars[CVAR_LIMIT_GLOBAL]) && get_user_team(id) == 2))
 	{
 		client_print_color(id, print_team_default, "%s ^3Sua equipe atingiu o limite de ^4Dispenser^3.", PREFIX_CHAT)
 		client_cmd(id, "spk %s", g_DispSndFail)
@@ -527,7 +579,7 @@ public xBuyDispenser(id)
 	}*/
 
 	static iMoney; iMoney = cs_get_user_money(id)
-	static iPriceDisp; iPriceDisp = get_pcvar_num(g_Cvar[CVAR_LVL1_PRICE])
+	static iPriceDisp; iPriceDisp = get_pcvar_num(g_Cvars[CVAR_LVL1_PRICE])
 
 	if(iMoney < iPriceDisp)
 	{
@@ -546,7 +598,7 @@ public xBuyDispenser(id)
 	}
 	else
 	{
-		if(get_pcvar_num(g_Cvar[CVAR_INSTANT_PLANT]))
+		if(get_pcvar_num(g_Cvars[CVAR_INSTANT_PLANT]))
 		{
 			static Float:fOrigin[3]
 			get_origin_from_dist_player(id, 100.0, fOrigin)
@@ -597,10 +649,10 @@ public xDestroyDispenser(id)
 
 			switch(iLevel)
 			{
-				case 1: { xGiveMoney = (get_pcvar_num(g_Cvar[CVAR_LVL1_PRICE])) / 2; }
-				case 2: { xGiveMoney = (get_pcvar_num(g_Cvar[CVAR_LVL2_PRICE])) / 2; }
-				case 3: { xGiveMoney = (get_pcvar_num(g_Cvar[CVAR_LVL3_PRICE])) / 2; }
-				case 4: { xGiveMoney = (get_pcvar_num(g_Cvar[CVAR_LVL4_PRICE])) / 2; }
+				case 1: { xGiveMoney = (get_pcvar_num(g_Cvars[CVAR_LVL1_PRICE])) / 2; }
+				case 2: { xGiveMoney = (get_pcvar_num(g_Cvars[CVAR_LVL2_PRICE])) / 2; }
+				case 3: { xGiveMoney = (get_pcvar_num(g_Cvars[CVAR_LVL3_PRICE])) / 2; }
+				case 4: { xGiveMoney = (get_pcvar_num(g_Cvars[CVAR_LVL4_PRICE])) / 2; }
 			}
 
 			g_DispPlayerCount[id] --
@@ -776,10 +828,10 @@ public fw_DispenserTouch(ent, id)
 
 	switch(iLevel + 1)
 	{
-		case 1: iDispBuy = get_pcvar_num(g_Cvar[CVAR_LVL1_PRICE]), iDispHpUp = get_pcvar_num(g_Cvar[CVAR_DISP_HP_LVL1])
-		case 2: iDispBuy = get_pcvar_num(g_Cvar[CVAR_LVL2_PRICE]), iDispHpUp = get_pcvar_num(g_Cvar[CVAR_DISP_HP_LVL2])
-		case 3: iDispBuy = get_pcvar_num(g_Cvar[CVAR_LVL3_PRICE]), iDispHpUp = get_pcvar_num(g_Cvar[CVAR_DISP_HP_LVL3])
-		case 4: iDispBuy = get_pcvar_num(g_Cvar[CVAR_LVL4_PRICE]), iDispHpUp = get_pcvar_num(g_Cvar[CVAR_DISP_HP_LVL4])
+		case 1: iDispBuy = get_pcvar_num(g_Cvars[CVAR_LVL1_PRICE]), iDispHpUp = get_pcvar_num(g_Cvars[CVAR_DISP_HP_LVL1])
+		case 2: iDispBuy = get_pcvar_num(g_Cvars[CVAR_LVL2_PRICE]), iDispHpUp = get_pcvar_num(g_Cvars[CVAR_DISP_HP_LVL2])
+		case 3: iDispBuy = get_pcvar_num(g_Cvars[CVAR_LVL3_PRICE]), iDispHpUp = get_pcvar_num(g_Cvars[CVAR_DISP_HP_LVL3])
+		case 4: iDispBuy = get_pcvar_num(g_Cvars[CVAR_LVL4_PRICE]), iDispHpUp = get_pcvar_num(g_Cvars[CVAR_DISP_HP_LVL4])
 	}
 
 	if(iMoney < iDispBuy)
@@ -802,16 +854,8 @@ public fw_DispenserTouch(ent, id)
 	static iDispVip
 	iDispVip = pev(ent, DISPENSER_VIP)
 
-	if(iDispVip && !get_pcvar_num(g_Cvar[CVAR_ONEMODEL]))
-	{
-		engfunc(EngFunc_SetModel, ent, g_DispModelVip)
-		set_pev(ent, pev_modelindex, xModelIndex[0])
-	}
-	else
-	{
-		engfunc(EngFunc_SetModel, ent, g_DispModel)
-		set_pev(ent, pev_modelindex, xModelIndex[1])
-	}
+	engfunc(EngFunc_SetModel, ent, g_DispModel)
+	set_pev(ent, pev_modelindex, xModelIndex[1])
 
 	engfunc(EngFunc_SetSize, ent, Float:{ -20.0, -20.0, 0.0 }, Float:{ 20.0, 20.0, 80.0 })
 	emit_sound(ent, CHAN_STATIC, g_DispActive, VOL_NORM, ATTN_NORM, 0, PITCH_NORM)
@@ -828,7 +872,7 @@ public fw_DispenserTouch(ent, id)
 			{
 				case 2:
 				{
-					if(iDispVip && !get_pcvar_num(g_Cvar[CVAR_ONEMODEL]))
+					if(iDispVip && !get_pcvar_num(g_Cvars[CVAR_ONEMODEL]))
 					{
 						UTIL_SetAnim(ent, ANIM_LVL2_BUILD, 1.0)
 						set_task(1.4, "Model_IdleLvl2", ent+TASK_ANIM)
@@ -841,7 +885,7 @@ public fw_DispenserTouch(ent, id)
 
 				case 3:
 				{
-					if(iDispVip && !get_pcvar_num(g_Cvar[CVAR_ONEMODEL]))
+					if(iDispVip && !get_pcvar_num(g_Cvars[CVAR_ONEMODEL]))
 					{
 						UTIL_SetAnim(ent, ANIM_LVL3_BUILD, 1.0)
 						set_task(0.9, "Model_IdleLvl3", ent+TASK_ANIM)
@@ -854,7 +898,7 @@ public fw_DispenserTouch(ent, id)
 
 				case 4:
 				{
-					if(iDispVip && !get_pcvar_num(g_Cvar[CVAR_ONEMODEL]))
+					if(iDispVip && !get_pcvar_num(g_Cvars[CVAR_ONEMODEL]))
 					{
 						UTIL_SetAnim(ent, ANIM_LVL3_BUILD, 1.0)
 						set_task(0.9, "Model_IdleLvl3", ent+TASK_ANIM)
@@ -879,7 +923,7 @@ public fw_DispenserTouch(ent, id)
 			{
 				case 2:
 				{
-					if(iDispVip && !get_pcvar_num(g_Cvar[CVAR_ONEMODEL]))
+					if(iDispVip && !get_pcvar_num(g_Cvars[CVAR_ONEMODEL]))
 					{
 						UTIL_SetAnim(ent, ANIM_LVL2_BUILD, 1.0)
 						set_task(1.4, "Model_IdleLvl2", ent+TASK_ANIM)
@@ -892,7 +936,7 @@ public fw_DispenserTouch(ent, id)
 
 				case 3:
 				{
-					if(iDispVip && !get_pcvar_num(g_Cvar[CVAR_ONEMODEL]))
+					if(iDispVip && !get_pcvar_num(g_Cvars[CVAR_ONEMODEL]))
 					{
 						UTIL_SetAnim(ent, ANIM_LVL3_BUILD, 1.0)
 						set_task(0.9, "Model_IdleLvl3", ent+TASK_ANIM)
@@ -905,7 +949,7 @@ public fw_DispenserTouch(ent, id)
 
 				case 4:
 				{
-					if(iDispVip && !get_pcvar_num(g_Cvar[CVAR_ONEMODEL]))
+					if(iDispVip && !get_pcvar_num(g_Cvars[CVAR_ONEMODEL]))
 					{
 						UTIL_SetAnim(ent, ANIM_LVL3_BUILD, 1.0)
 						set_task(0.9, "Model_IdleLvl3", ent+TASK_ANIM)
@@ -948,7 +992,7 @@ public tk_Dispenser(iEnt)
 		static id, fRadius, iDispHp, iLevel, iDispAp, Float:iTakeApHp
 		iLevel = pev(iEnt, DISPENSER_LEVEL)
 
-		if(get_pcvar_num(g_Cvar[CVAR_EFFECT_LVL_4]))
+		if(get_pcvar_num(g_Cvars[CVAR_EFFECT_LVL_4]))
 		{
 			if(iLevel == 4)
 			{
@@ -961,29 +1005,29 @@ public tk_Dispenser(iEnt)
 		{
 			case 1:
 			{
-				iDispHp = get_pcvar_num(g_Cvar[CVAR_HP_LVL1])
-				iDispAp = get_pcvar_num(g_Cvar[CVAR_AP_LVL1])
+				iDispHp = get_pcvar_num(g_Cvars[CVAR_HP_LVL1])
+				iDispAp = get_pcvar_num(g_Cvars[CVAR_AP_LVL1])
 				iTakeApHp = 1.0
 			}
 
 			case 2:
 			{
-				iDispHp = get_pcvar_num(g_Cvar[CVAR_HP_LVL2])
-				iDispAp = get_pcvar_num(g_Cvar[CVAR_AP_LVL2])
+				iDispHp = get_pcvar_num(g_Cvars[CVAR_HP_LVL2])
+				iDispAp = get_pcvar_num(g_Cvars[CVAR_AP_LVL2])
 				iTakeApHp = 1.5
 			}
 
 			case 3:
 			{
-				iDispHp = get_pcvar_num(g_Cvar[CVAR_HP_LVL3])
-				iDispAp = get_pcvar_num(g_Cvar[CVAR_AP_LVL3])
+				iDispHp = get_pcvar_num(g_Cvars[CVAR_HP_LVL3])
+				iDispAp = get_pcvar_num(g_Cvars[CVAR_AP_LVL3])
 				iTakeApHp = 2.0
 			}
 
 			case 4:
 			{
-				iDispHp = get_pcvar_num(g_Cvar[CVAR_HP_LVL4])
-				iDispAp = get_pcvar_num(g_Cvar[CVAR_AP_LVL4])
+				iDispHp = get_pcvar_num(g_Cvars[CVAR_HP_LVL4])
+				iDispAp = get_pcvar_num(g_Cvars[CVAR_AP_LVL4])
 				iTakeApHp = 2.5
 			}
 		}
@@ -998,7 +1042,7 @@ public tk_Dispenser(iEnt)
 
 			if(is_user_alive(id) && get_user_team(id) == get_user_team(iOwner))
 			{
-				fRadius = get_pcvar_num(g_Cvar[CVAR_DISTANCE_LIFE])
+				fRadius = get_pcvar_num(g_Cvars[CVAR_DISTANCE_LIFE])
 
 				static Float:flOrigin[3]
 				pev(id, pev_origin, flOrigin)
@@ -1013,7 +1057,7 @@ public tk_Dispenser(iEnt)
 							{
 								set_pev(id, pev_health, floatmin(pev(id, pev_health) + iTakeApHp, float(iDispHp)))
 								
-								if(get_pcvar_num(g_Cvar[CVAR_SHOW_LIFE_SPRITE]))
+								if(get_pcvar_num(g_Cvars[CVAR_SHOW_LIFE_SPRITE]))
 								{
 									static iOrigin[3]
 									get_user_origin(id, iOrigin)
@@ -1032,7 +1076,7 @@ public tk_Dispenser(iEnt)
 									message_end()
 								}
 							}
-							if(get_pcvar_num(g_Cvar[CVAR_SHOW_LINE_LIFE]))
+							if(get_pcvar_num(g_Cvars[CVAR_SHOW_LINE_LIFE]))
 								UTIL_BeamEnts(flOrigin, g_DispOrigin[iOwner], g_BeamColor[iOwner][0], g_BeamColor[iOwner][1], g_BeamColor[iOwner][2], g_PrecSprLife, 40, 0, 1)
 						}
 					}
@@ -1044,26 +1088,26 @@ public tk_Dispenser(iEnt)
 							set_pev(id, pev_armorvalue, floatmin(pev(id, pev_armorvalue) + iTakeApHp, float(iDispAp)))
 						}
 					
-						if(get_pcvar_num(g_Cvar[CVAR_SHOW_LINE_LIFE]))
+						if(get_pcvar_num(g_Cvars[CVAR_SHOW_LINE_LIFE]))
 							UTIL_BeamEnts(flOrigin, g_DispOrigin[iOwner], g_BeamColor[iOwner][0], g_BeamColor[iOwner][1], g_BeamColor[iOwner][2], g_PrecSprLife, 40, 0, 1)
 					}
 				}
 
-				if(UTIL_IsVisible(id, iEnt, 1) && get_distance_f(g_DispOrigin[iOwner], flOrigin) <= float(get_pcvar_num(g_Cvar[CVAR_GIVE_MONEY_DISTANCE])) && iLevel == 4 && get_pcvar_num(g_Cvar[CVAR_GIVE_MONEY_TIME]))
+				if(UTIL_IsVisible(id, iEnt, 1) && get_distance_f(g_DispOrigin[iOwner], flOrigin) <= float(get_pcvar_num(g_Cvars[CVAR_GIVE_MONEY_DISTANCE])) && iLevel == 4 && get_pcvar_num(g_Cvars[CVAR_GIVE_MONEY_TIME]))
 				{
-					if(time - float(get_pcvar_num(g_Cvar[CVAR_GIVE_MONEY_TIME])) > f_TimeGiveMoney[id])
+					if(time - float(get_pcvar_num(g_Cvars[CVAR_GIVE_MONEY_TIME])) > f_TimeGiveMoney[id])
 					{
-						cs_set_user_money(id, cs_get_user_money(id) + random_num(get_pcvar_num(g_Cvar[CVAR_GIVE_MONEY_MIN]), get_pcvar_num(g_Cvar[CVAR_GIVE_MONEY_MAX])))
+						cs_set_user_money(id, cs_get_user_money(id) + random_num(get_pcvar_num(g_Cvars[CVAR_GIVE_MONEY_MIN]), get_pcvar_num(g_Cvars[CVAR_GIVE_MONEY_MAX])))
 
 						f_TimeGiveMoney[id] = time
 					}
 				}
 
-				if(UTIL_IsVisible(id, iEnt, 1) && get_distance_f(g_DispOrigin[iOwner], flOrigin) <= float(get_pcvar_num(g_Cvar[CVAR_GIVE_AMMO_DISTANCE])) && get_pcvar_num(g_Cvar[CVAR_GIVE_AMMO_TIME]))
+				if(UTIL_IsVisible(id, iEnt, 1) && get_distance_f(g_DispOrigin[iOwner], flOrigin) <= float(get_pcvar_num(g_Cvars[CVAR_GIVE_AMMO_DISTANCE])) && get_pcvar_num(g_Cvars[CVAR_GIVE_AMMO_TIME]))
 				{
-					if(get_pcvar_num(g_Cvar[CVAR_ALL_LVL_GIVE_AMMO]) || iLevel == 4)
+					if(get_pcvar_num(g_Cvars[CVAR_ALL_LVL_GIVE_AMMO]) || iLevel == 4)
 					{
-						if(time - float(get_pcvar_num(g_Cvar[CVAR_GIVE_AMMO_TIME])) > f_TimeGiveAmmo[id])
+						if(time - float(get_pcvar_num(g_Cvars[CVAR_GIVE_AMMO_TIME])) > f_TimeGiveAmmo[id])
 						{
 							static fammo, fbammo, xUserGetWpn
 							xUserGetWpn = get_user_weapon(id)
@@ -1102,8 +1146,8 @@ public tk_Dispenser(iEnt)
 								xUserWpn = get_pdata_cbase(id, 373)
 								currentAmmo = cs_get_weapon_ammo(xUserWpn)
 								currentBammo = cs_get_user_bpammo(id, xUserGetWpn)
-								newAmmo = currentAmmo + random_num(get_pcvar_num(g_Cvar[CVAR_GIVE_AMMO_MIN]), get_pcvar_num(g_Cvar[CVAR_GIVE_AMMO_MAX]))
-								newBAmmo = currentBammo + random_num(get_pcvar_num(g_Cvar[CVAR_GIVE_AMMO_MIN]), get_pcvar_num(g_Cvar[CVAR_GIVE_AMMO_MAX]))
+								newAmmo = currentAmmo + random_num(get_pcvar_num(g_Cvars[CVAR_GIVE_AMMO_MIN]), get_pcvar_num(g_Cvars[CVAR_GIVE_AMMO_MAX]))
+								newBAmmo = currentBammo + random_num(get_pcvar_num(g_Cvars[CVAR_GIVE_AMMO_MIN]), get_pcvar_num(g_Cvars[CVAR_GIVE_AMMO_MAX]))
 								
 								if(currentAmmo == fammo && currentBammo == fbammo)
 									continue
@@ -1135,7 +1179,7 @@ public tk_Dispenser(iEnt)
         if(get_distance_f(g_DispOrigin[iOwner], flOrigin) <= fRadius)
                 {
 
-                     if(iLevel - 1 >= get_pcvar_num(g_Cvar[CVAR_DISPENSER_HP]))
+                     if(iLevel - 1 >= get_pcvar_num(g_Cvars[CVAR_DISPENSER_HP]))
                 {
                     new iOwner = pev(iEnt, DISPENSER_OWNER);
                     new iOwnerTeam = _:cs_get_user_team(iOwner);
@@ -1364,8 +1408,8 @@ public ham_TakeDamagePost(ent, idinflictor, idattacker, Float:damage, damagebits
 			}
 			else
 			{
-				client_print_color(0, print_team_default, "%s ^1%s ^3destruiu o ^4Dispenser ^3de ^1%s ^3e ganhou ^4$: %s ^3de dinheiro.", PREFIX_CHAT, szName, szNameOwner, xAddPoint(get_pcvar_num(g_Cvar[CVAR_BONUS_DESTROY])))
-				cs_set_user_money(idattacker, cs_get_user_money(idattacker) + get_pcvar_num(g_Cvar[CVAR_BONUS_DESTROY]))
+				client_print_color(0, print_team_default, "%s ^1%s ^3destruiu o ^4Dispenser ^3de ^1%s ^3e ganhou ^4$: %s ^3de dinheiro.", PREFIX_CHAT, szName, szNameOwner, xAddPoint(get_pcvar_num(g_Cvars[CVAR_BONUS_DESTROY])))
+				cs_set_user_money(idattacker, cs_get_user_money(idattacker) + get_pcvar_num(g_Cvars[CVAR_BONUS_DESTROY]))
 			}
 
 			emit_sound(ent, CHAN_ITEM, g_DispSndDestroy, VOL_NORM, ATTN_NORM, 0, PITCH_HIGH)
@@ -1384,7 +1428,7 @@ public ham_TakeDamagePost(ent, idinflictor, idattacker, Float:damage, damagebits
 
 stock bool:xCreateDispanser(Float:origin[3], creator)
 {
-	if(get_pcvar_num(g_Cvar[CVAR_INSTANT_PLANT]))
+	if(get_pcvar_num(g_Cvars[CVAR_INSTANT_PLANT]))
 	{
 		static xEntList[3]
 
@@ -1419,25 +1463,14 @@ stock bool:xCreateDispanser(Float:origin[3], creator)
 
 	set_pev(ent, pev_classname, dispenser_classname)
 
-	// if(g_IsVip[creator] && !get_pcvar_num(g_Cvar[CVAR_ONEMODEL]))
-	// {
-		// engfunc(EngFunc_SetModel, ent, g_DispModelVip)
-		// set_pev(ent, pev_modelindex, xModelIndex[0])
-		// set_pev(ent, pev_skin, get_user_team(creator))
-		// UTIL_SetAnim(ent, ANIM_LVL1_BUILD, 1.0)
-		// set_task(10.0, "Model_IdleLvl1", ent+TASK_ANIM)
-	// }
-	// else
-	{
-		engfunc(EngFunc_SetModel, ent, g_DispModel)
-		set_pev(ent, pev_modelindex, xModelIndex[1])
-	}
+	engfunc(EngFunc_SetModel, ent, g_DispModel)
+	set_pev(ent, pev_modelindex, xModelIndex[1])
 
 	engfunc(EngFunc_SetSize, ent, Float:{ -20.0, -20.0, 0.0 }, Float:{ 20.0, 20.0, 80.0 })
 	set_pev(ent, pev_origin, origin)
 	set_pev(ent, pev_solid, SOLID_BBOX)
 	set_pev(ent, pev_movetype, MOVETYPE_TOSS)
-	set_pev(ent, pev_health, float(get_pcvar_num(g_Cvar[CVAR_DISP_HP_LVL1])))
+	set_pev(ent, pev_health, float(get_pcvar_num(g_Cvars[CVAR_DISP_HP_LVL1])))
 	set_pev(ent, pev_takedamage, 1.0)
 //	set_pev(ent, DISPENSER_VIP, g_IsVip[creator])
 	set_pev(ent, DISPENSER_OWNER, creator)
@@ -1445,13 +1478,13 @@ stock bool:xCreateDispanser(Float:origin[3], creator)
 	set_pev(ent, DISPENSER_TEAM, get_user_team(creator))
 	
 
-	if(get_pcvar_num(g_Cvar[CVAR_IDLE_SOUND]))
+	if(get_pcvar_num(g_Cvars[CVAR_IDLE_SOUND]))
 	{
 		xDispenserSndIdle(ent)
 		set_task(1.9, "xDispenserSndIdle", ent, _, _, "b")
 	}
 
-	if(get_pcvar_num(g_Cvar[CVAR_LIGHT]))
+	if(get_pcvar_num(g_Cvars[CVAR_LIGHT]))
 		set_task(0.1, "xDispenserLight", ent, _, _, "b")
 
 	g_DispOrigin[creator][0] = origin[0]
@@ -1466,7 +1499,7 @@ stock bool:xCreateDispanser(Float:origin[3], creator)
 			g_BeamColor[creator][1] = 0
 			g_BeamColor[creator][2] = 0
 
-			if(get_pcvar_num(g_Cvar[CVAR_ONEMODEL]))
+			if(get_pcvar_num(g_Cvars[CVAR_ONEMODEL]))
 				set_pev(ent, pev_body, 4)
 			else
 			{
@@ -1474,7 +1507,7 @@ stock bool:xCreateDispanser(Float:origin[3], creator)
 					set_pev(ent, pev_body, 4)
 			}
 
-			if(get_pcvar_num(g_Cvar[CVAR_GLOW]))
+			if(get_pcvar_num(g_Cvars[CVAR_GLOW]))
 				fm_set_rendering(ent, kRenderFxGlowShell, 255, 0, 0, kRenderNormal, 10)
 			
 			//xLimitGlobal[0]++
@@ -1486,7 +1519,7 @@ stock bool:xCreateDispanser(Float:origin[3], creator)
 			g_BeamColor[creator][1] = 0
 			g_BeamColor[creator][2] = 255
 		
-			if(get_pcvar_num(g_Cvar[CVAR_ONEMODEL]))
+			if(get_pcvar_num(g_Cvars[CVAR_ONEMODEL]))
 				set_pev(ent, pev_body, 0)
 			else
 			{
@@ -1494,7 +1527,7 @@ stock bool:xCreateDispanser(Float:origin[3], creator)
 					set_pev(ent, pev_body, 0)
 			}
 
-			if(get_pcvar_num(g_Cvar[CVAR_GLOW]))
+			if(get_pcvar_num(g_Cvars[CVAR_GLOW]))
 				fm_set_rendering(ent, kRenderFxGlowShell, 0, 0, 255, kRenderNormal, 10)
 			
 			//xLimitGlobal[1]++
@@ -1508,45 +1541,6 @@ stock bool:xCreateDispanser(Float:origin[3], creator)
 	set_pev(ent, pev_nextthink, get_gametime() + 0.1)
 
 	return true
-}
-
-public Model_IdleLvl1(iTaskID)
-{
-	if(!pev_valid(ID_ANIM))
-	{
-		if(task_exists(ID_ANIM))
-			remove_task(ID_ANIM)
-
-		return
-	}
-
-	UTIL_SetAnim(ID_ANIM, ANIM_LVL1_IDLE, 1.0)
-}
-
-public Model_IdleLvl2(iTaskID)
-{
-	if(!pev_valid(ID_ANIM))
-	{
-		if(task_exists(ID_ANIM))
-			remove_task(ID_ANIM)
-
-		return
-	}
-
-	UTIL_SetAnim(ID_ANIM, ANIM_LVL2_IDLE, 1.0)
-}
-
-public Model_IdleLvl3(iTaskID)
-{
-	if(!pev_valid(ID_ANIM))
-	{
-		if(task_exists(ID_ANIM))
-			remove_task(ID_ANIM)
-
-		return
-	}
-
-	UTIL_SetAnim(ID_ANIM, ANIM_LVL3_IDLE, 1.0)
 }
 
 public xDispenserSndIdle(ent)
@@ -1798,21 +1792,6 @@ stock get_origin_from_dist_player(id, Float:dist, Float:origin[3], s3d = 1)
 	origin[2] = idorigin[2]
 }
 
-stock xRegisterSay(szsay[], szfunction[])
-{
-	static sztemp[64]
-	formatex(sztemp, 63 , "say /%s", szsay)
-	register_clcmd(sztemp, szfunction)
-	
-	formatex(sztemp, 63 , "say .%s", szsay)
-	register_clcmd(sztemp, szfunction)
-	
-	formatex(sztemp, 63 , "say_team /%s", szsay)
-	register_clcmd(sztemp, szfunction )
-	
-	formatex(sztemp, 63 , "say_team .%s", szsay)
-	register_clcmd(sztemp, szfunction)
-}
 
 stock xAddPoint(number)
 {
