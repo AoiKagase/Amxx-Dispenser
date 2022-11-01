@@ -40,7 +40,7 @@ new const Float:xStuckSize[][3] =
 	{0.0, 0.0, 5.0}, {0.0, 0.0, -5.0}, {0.0, 5.0, 0.0}, {0.0, -5.0, 0.0}, {5.0, 0.0, 0.0}, {-5.0, 0.0, 0.0}, {-5.0, 5.0, 5.0}, {5.0, 5.0, 5.0}, {5.0, -5.0, 5.0}, {5.0, 5.0, -5.0}, {-5.0, -5.0, 5.0}, {5.0, -5.0, -5.0}, {-5.0, 5.0, -5.0}, {-5.0, -5.0, -5.0}
 };
 
-enum E_CVARS
+enum _:E_CVARS
 {
 	// Price.
 	CV_LVL1_PRICE,
@@ -240,7 +240,7 @@ enum E_DISPENSER_SOUND
 	SND_IDLE,
 };
 
-new const g_DispenserSound[][] = 
+new const g_DispenserSound[E_DISPENSER_SOUND][] = 
 {
 	"dispenser/dispenser_generate_metal.wav",
 	"dispenser/dispenser_fail.wav",
@@ -254,7 +254,7 @@ enum
 	BUILD_DISPENSER_NO,
 };
 
-enum E_MODELS
+enum _:E_MODELS
 {
 	MDL_BLUEPRINT,
 	MDL_DISPENSER,
@@ -320,7 +320,7 @@ new xStuck[33], xModelIndex;
 // ====================================================
 stock register_cvars()
 {
-	for(new E_CVARS:i = CV_LVL1_PRICE; i < E_CVARS; i++)
+	for(new i = CV_LVL1_PRICE; i < E_CVARS; i++)
 	{
 		g_CvarPointer[i] = create_cvar(g_CVarString[i][0], g_CVarString[i][1]);
 		if (equali(g_CVarString[i][2], "num"))
@@ -339,14 +339,14 @@ public cvar_change_callback(pcvar, const old_value[], const new_value[])
 {
 	for(new i = 0; i < sizeof(g_CVarString); i++)
 	{
-		if (g_CvarPointer[E_CVARS:i] == pcvar)
+		if (g_CvarPointer[i] == pcvar)
 		{
-			if (equali(g_CVarString[E_CVARS:i][2], "num"))
-				g_Cvars[E_CVARS:i] = str_to_num(new_value);
-			else if (equali(g_CVarString[E_CVARS:i][2], "float"))
-				g_Cvars[E_CVARS:i] = _:str_to_float(new_value);
+			if (equali(g_CVarString[i][2], "num"))
+				g_Cvars[i] = str_to_num(new_value);
+			else if (equali(g_CVarString[i][2], "float"))
+				g_Cvars[i] = _:str_to_float(new_value);
 
-			console_print(0,"[Cvar Debug]: Changed Cvar '%s' => '%s' to '%s'", g_CVarString[E_CVARS:i][0], old_value, new_value);
+			console_print(0,"[Cvar Debug]: Changed Cvar '%s' => '%s' to '%s'", g_CVarString[i][0], old_value, new_value);
 		}
 	}
 }
@@ -505,20 +505,19 @@ public plugin_cfg()
 
 public plugin_precache()
 {
-	new i;
-	for(i = 0; i < sizeof(g_DispenserSprites); i++)
-		g_PrecacheSprites[E_SPRITES:i] = precache_model(g_DispenserSprites[i]);
+	for(new E_SPRITES:i = SPR_SMOKE; i < E_SPRITES; i++)
+		g_PrecacheSprites[i] = precache_model(g_DispenserSprites[i]);
 
-	for(i = 0; i < sizeof(g_DispenserModels); i++)
-		g_PrecacheModels[E_MODELS:i]   = precache_model(g_DispenserModels[i]);
+	for(new i = MDL_BLUEPRINT; i < E_MODELS; i++)
+		g_PrecacheModels[i]   = precache_model(g_DispenserModels[i]);
 
-	for(i = 0; i < sizeof(g_DispenserSound); i++)
+	for(new E_DISPENSER_SOUND:i = SND_ACTIVE; i < E_DISPENSER_SOUND; i++)
 		precache_sound(g_DispenserSound[i]);
 
-	for(i = 0; i < sizeof(g_BulletsSounds); i++)
+	for(new i = 0; i < sizeof(g_BulletsSounds); i++)
 		engfunc(EngFunc_PrecacheSound, g_BulletsSounds[i]);
 
-	for(i = 0; i < sizeof(g_DamageSounds); i++) 
+	for(new i = 0; i < sizeof(g_DamageSounds); i++) 
 		engfunc(EngFunc_PrecacheSound, g_DamageSounds[i]);
 }
 
@@ -865,12 +864,12 @@ public DispenserTouch(iEnt, id)
 		if(!pev_valid(iEnt))
 			return PLUGIN_CONTINUE;
 
-		static CsTeam:iTeam;
+		static CsTeams:iTeam;
 		static iLevel;
 		static iOwner;
 		static iMoney;
 		iMoney = cs_get_user_money(id);
-		iTeam  = CsTeam:pev(iEnt, DISPENSER_TEAM);
+		iTeam  = CsTeams:pev(iEnt, DISPENSER_TEAM);
 		iOwner = pev(iEnt, DISPENSER_OWNER);
 		iLevel = pev(iEnt, DISPENSER_LEVEL);
 
@@ -967,7 +966,7 @@ public DispenserThink(iEnt)
 	}
 
 	static iLevel;
-	static CsTeam:iTeam;
+	static CsTeams:iTeam;
 	static Float:fOrigin[3];
 	static Float:fOriginTarget[3];
 	static Float:time;
@@ -975,18 +974,18 @@ public DispenserThink(iEnt)
 	static Float:fRadius;
 
 	// Get Max Radius.
-	fRadius = max(g_Cvars[CV_RECOVERY_RADIUS], g_Cvars[CV_GIVE_MONEY_DISTANCE]);
-	fRadius = max(fRadius, g_Cvars[CV_GIVE_AMMO_DISTANCE]);
+	fRadius = floatmax(g_Cvars[CV_RECOVERY_RADIUS], g_Cvars[CV_GIVE_MONEY_DISTANCE]);
+	fRadius = floatmax(fRadius, g_Cvars[CV_GIVE_AMMO_DISTANCE]);
 
 	time = get_gametime();
 
 	iLevel 	= pev(iEnt, DISPENSER_LEVEL);
-	iTeam	= CsTeam:pev(iEnt, DISPENSER_TEAM);
+	iTeam	= CsTeams:pev(iEnt, DISPENSER_TEAM);
 	pev(iEnt, pev_origin, fOrigin);
 
 	id = -1;
 	// Find Entity in Sphere of Dispenser.
-	while((id = engfunc(EngFunc_FindEntityInSphere, id, flOrigin, fRadius)) != 0)
+	while((id = engfunc(EngFunc_FindEntityInSphere, id, fOrigin, fRadius)) != 0)
 	{
 		// Is Players.
 		if (is_valid_player(id))
@@ -1007,7 +1006,7 @@ public DispenserThink(iEnt)
 			pev(id, pev_origin, fOriginTarget);
 
 			// Get distance dispencer to target.
-			static distance;
+			static Float:distance;
 			distance = get_distance_f(fOrigin, fOriginTarget);
 
 			static bool:recovery;
@@ -1020,10 +1019,10 @@ public DispenserThink(iEnt)
 				if (pev(id, pev_health) < g_Cvars[CV_LVL1_MAX_HP + (iLevel - 1)])
 				{
 					recovery = true;
-					set_pev(id, pev_health, floatmin(pev(id, pev_health) + g_Cvars[CV_LVL1_AMOUNT_HP + (iLevel - 1)], float(g_Cvars[CV_LVL1_MAX_HP + (iLevel - 1)])));
+					set_pev(id, pev_health, floatmin(pev(id, pev_health) + float(g_Cvars[CV_LVL1_AMOUNT_HP + (iLevel - 1)]), float(g_Cvars[CV_LVL1_MAX_HP + (iLevel - 1)])));
 					if (g_Cvars[CV_SHOW_LIFE_SPRITE])
 					{
-						message_begin(MSG_PVS, SVC_TEMPENTITY, fOriginTarget);
+						engfunc(EngFunc_MessageBegin, MSG_PVS, SVC_TEMPENTITY, fOriginTarget);
 						write_byte(TE_PROJECTILE);
 						write_coord(floatround(fOriginTarget[0]) + random_num(-10, 15));
 						write_coord(floatround(fOriginTarget[1]) + random_num(-10, 15));
@@ -1031,7 +1030,7 @@ public DispenserThink(iEnt)
 						write_coord(10);
 						write_coord(15);
 						write_coord(20);
-						write_short(iTeam == 1 ? g_PrecacheSprites[SPR_HEAL_LIFE_R] : g_PrecacheSprites[SPR_HEAL_LIFE_B]);
+						write_short(iTeam == CS_TEAM_T ? g_PrecacheSprites[SPR_HEAL_LIFE_R] : g_PrecacheSprites[SPR_HEAL_LIFE_B]);
 						write_byte(1);
 						write_byte(id);
 						message_end();
@@ -1041,7 +1040,7 @@ public DispenserThink(iEnt)
 				if(pev(id, pev_armorvalue) < g_Cvars[CV_LVL1_MAX_ARMOR + (iLevel - 1)])
 				{
 					recovery = true;
-					set_pev(id, pev_armorvalue, floatmin(pev(id, pev_armorvalue) + g_Cvars[CV_LVL1_AMOUNT_ARMOR + (iLevel - 1)], float(g_Cvars[CV_LVL1_MAX_ARMOR + (iLevel - 1)])))
+					set_pev(id, pev_armorvalue, floatmin(pev(id, pev_armorvalue) + float(g_Cvars[CV_LVL1_AMOUNT_ARMOR + (iLevel - 1)]), float(g_Cvars[CV_LVL1_MAX_ARMOR + (iLevel - 1)])));
 				}
 			}
 
@@ -1083,7 +1082,7 @@ public DispenserThink(iEnt)
 								
 							cs_set_weapon_ammo(currentWpnEntId, min(newAmmo, g_WeaponsAmmo[currentWpn][0]));
 							cs_set_user_bpammo(id, currentWpn, min(newBPAmmo, g_WeaponsAmmo[currentWpn][1]));
-							emit_sound(id, CHAN_ITEM, g_BulletsSounds[random_num(0, charsmax(g_BulletsSounds))], 0.3, ATTN_NORM, 0, PITCH_NORM)
+							emit_sound(id, CHAN_ITEM, g_BulletsSounds[random_num(0, charsmax(g_BulletsSounds))], 0.3, ATTN_NORM, 0, PITCH_NORM);
 						}
 						g_Timers[id][TIME_GIVE_AMMO] = time;
 					}
@@ -1108,10 +1107,10 @@ public DispenserThink(iEnt)
 			if (!equali(targetClassName, dispenser_classname))
 				continue;
 
-			static targetOwner;
-			static CsTeam:targetTeam;
-			targetOwner = pev(iEnt, DISPENSER_OWNER);
-			targetTeam = CsTeam:pev(id, DISPENSER_TEAM);
+			// static targetOwner;
+			static CsTeams:targetTeam;
+			// targetOwner = pev(iEnt, DISPENSER_OWNER);
+			targetTeam = CsTeams:pev(id, DISPENSER_TEAM);
 			// Skip. Enemies.
 			if (targetTeam != iTeam)
 				continue;
@@ -1175,14 +1174,14 @@ public DispenserThink(iEnt)
 
 stock ForceDestroyDispensers()
 {
-	new n = 0;
 	new iEnt = -1;
 	for(new i = 0; i <= MAX_PLAYERS; i++)
 	{
-		while(iEnt = ArrayGetCell(g_Dispensers[i], n++))
+		for (new n = 0; n < ArraySize(g_Dispensers[i]); n++)
 		{
-			if(pev_valid(ent))
-				RemoveEntity(ent)
+			iEnt = ArrayGetCell(g_Dispensers[i], n);
+			if(pev_valid(iEnt))
+				RemoveEntity(iEnt);
 		}
 		ArrayClear(g_Dispensers[i]);
 	}
@@ -1190,8 +1189,8 @@ stock ForceDestroyDispensers()
 	iEnt = -1;
 	while ((iEnt = engfunc(EngFunc_FindEntityByString, iEnt, "classname", dispenser_classname)))
 	{
-		if(pev_valid(ent))
-			RemoveEntity(ent)
+		if(pev_valid(iEnt))
+			RemoveEntity(iEnt);
 	}
 }
 
@@ -1335,7 +1334,7 @@ public ham_TakeDamagePost(ent, idinflictor, idattacker, Float:damage, damagebits
 
 		if(pev(ent, pev_health) <= 0.0)
 		{
-			new CsTeam:iTeam; iTeam = CsTeam:pev(ent, DISPENSER_TEAM);
+			new CsTeam:iTeam = CsTeam:pev(ent, DISPENSER_TEAM);
 
 			new Float:originF[3];
 			pev(ent, pev_origin, originF);
@@ -1346,7 +1345,7 @@ public ham_TakeDamagePost(ent, idinflictor, idattacker, Float:damage, damagebits
 			new szNameOwner[32];
 			get_user_name(iOwner, szNameOwner, charsmax(szNameOwner));
 
-			UTIL_BreakModel(originF, iTeam == 1 ? g_PrecDispModelGibsR : g_PrecDispModelGibsB, 2);
+			UTIL_BreakModel(originF, g_PrecacheModels[_:iTeam + MDL_DISPENSER], 2);
 			DispenserExplode(originF, 10, 50, 50, 2, 35, 50);
 
 			if(idattacker == iOwner)
