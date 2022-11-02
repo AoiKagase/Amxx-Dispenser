@@ -3,6 +3,7 @@
 #include <amxmodx>
 #include <amxmisc>
 #include <cstrike>
+#include <engine>
 #include <fakemeta>
 #include <hamsandwich>
 #include <xs>
@@ -28,7 +29,9 @@
 
 #define is_valid_player(%1) (1 <= %1 <= MaxClients)
 
-#define TASK_ANIM 4875154
+#define TASK_ANIM 		4875154
+#define TASK_IDLE_SOUND 154879321
+#define TASK_LIGHT 		114879321
 #define ID_ANIM (iTaskID - TASK_ANIM)
 
 new const Float:xStuckSize[][3] =
@@ -274,7 +277,7 @@ enum E_SPRITES
 new const g_DispenserModels[E_MODELS][] = 
 {
 	"models/dispenser/dispenser_blueprint.mdl",
-	"models/dispenser/dispenser.mdl",
+	"models/dispenser/dispenser_free.mdl",
 	"models/dispenser/dispenser_gibs_r.mdl",
 	"models/dispenser/dispenser_gibs_b.mdl",
 };
@@ -288,7 +291,7 @@ new const g_DispenserSprites[E_SPRITES][] =
 	"sprites/laserbeam.spr",
 };
 
-enum E_TIMERS
+enum _:E_TIMERS
 {
 	TIME_GIVE_MONEY,
 	TIME_GIVE_AMMO,
@@ -296,20 +299,25 @@ enum E_TIMERS
 	TIME_PLANT_HUD,
 	TIME_FLOOD_TOUCH,
 }
+
+new const Float:g_Color[CsTeams][] =
+{
+	{0.0,0.0,0.0},		// Unknown.
+	{255.0,0.0,0.0},	// Terrists RED
+	{0.0,0.0,255.0},	// Counter-Terrists BLUE
+	{0.0,0.0,0.0},		// Spectator
+};
+
 new Array:g_Dispensers	[MAX_PLAYERS + 1];
 new g_PlayerMoving		[MAX_PLAYERS + 1];
 new Float:g_Timers		[MAX_PLAYERS + 1][E_TIMERS];
-
-new Float:g_fTimeFloodDispTouch[33], 
-	g_BeamColor[33][3], 
-	g_DispPlayerCount[33];
 
 new g_PrecacheModels	[E_MODELS], 
 	g_PrecacheSprites	[E_SPRITES];
 
 new g_iPlantOk[33];
 
-new xStuck[33], xModelIndex;
+new xStuck[33];
 
 #define DISPENSER_OWNER pev_iuser2
 #define DISPENSER_LEVEL pev_iuser3
@@ -361,11 +369,11 @@ public plugin_init()
 	
 	register_cvars();
 	register_event("HLTV", 		"EventNewRound", "a", "1=0", "2=0");
-	register_forward(FM_TraceLine, "fw_TraceLinePost", true);
-	register_forward(FM_CmdStart, "fw_CmdStart");
+	register_forward(FM_TraceLine,		"fw_TraceLinePost", true);
+	register_forward(FM_CmdStart,		"fw_CmdStart");
+	register_forward(FM_PlayerPreThink,	"PlayerPreThink");
 
-	RegisterHam(Ham_Touch, 		 		"player",	"DispenserTouch");
-	RegisterHam(Ham_Player_PreThink,	"player",	"PlayerPreThink");
+	RegisterHam(Ham_Touch, 		 		"func_breakable", "DispenserTouch");
 	RegisterHam(Ham_Think, 		 		"func_breakable", "DispenserThink");
 	RegisterHam(Ham_TakeDamage,  		"func_breakable", "ham_TakeDamagePost", true);
 	RegisterHam(Ham_TakeDamage,  		"func_breakable", "ham_TakeDamagePre", false);
@@ -416,11 +424,15 @@ public HookDrop(id)
 stock bool:is_hull_vacant(const Float:origin[3], hull, id)
 {
 	static tr;
+	tr = create_tr2();
 	engfunc(EngFunc_TraceHull, origin, origin, 0, hull, id, tr);
 	
 	if(!get_tr2(tr, TR_StartSolid) || !get_tr2(tr, TR_AllSolid)) //get_tr2(tr, TR_InOpen))
+	{
+		free_tr2(tr);
 		return true;
-	
+	}
+	free_tr2(tr);
 	return false;
 }
 
@@ -476,6 +488,12 @@ public xCheckStuck()
 
 public client_putinserver(id)
 {
+	for (new i = 0; i < E_TIMERS; i++)
+		g_Timers[id][i] = get_gametime();
+
+	g_PlayerMoving[id] = -1;
+	g_iPlantOk[id] = false;
+	xStuck[id] = false;
 }
 
 public client_disconnected(id)
@@ -483,12 +501,9 @@ public client_disconnected(id)
 	DestroyPlayerMoveEntity(id);
 	DestroyPlayerDispensers(id);
 
-	g_DispPlayerCount[id] = false;
-	g_PlayerMoving[id] = 0;
-	g_fTimeFloodDispTouch[id] = 0.0;
+	g_PlayerMoving[id] = -1;
 
-	new E_TIMERS:i;
-	for (i = E_TIMERS:0; i < E_TIMERS; i++)
+	for (new i = 0; i < E_TIMERS; i++)
 		g_Timers[id][i] = 0.0;
 
 	g_iPlantOk[id] = false;
@@ -529,14 +544,14 @@ public EventNewRound()
 
 public PlayerPreThink(id)
 {
-	static Float:ftime;
-	ftime = get_gametime();
-
 	if (is_user_alive(id))
 	{
 		if (pev_valid(g_PlayerMoving[id]))
 		{
-			if(ftime - 0.05 > g_Timers[id][TIME_POST_THINK]) // sem spamar o think
+			static Float:ftime;
+			ftime = get_gametime();
+
+			if(ftime < g_Timers[id][TIME_POST_THINK]) // no spamming the think
 			{
 				static Float:fOrigin[3];
 				GetOriginFromDistPlayer(id, 125.0, fOrigin);
@@ -544,10 +559,12 @@ public PlayerPreThink(id)
 
 				engfunc(EngFunc_DropToFloor, g_PlayerMoving[id]);
 
-				static entity; entity = -1;
-				static classname[32];
-				static Float:tOrigin[3];
-				if (TraceCheckCollides(fOrigin, 35.0))
+				static entlist[3];
+				if (find_sphere_class(g_PlayerMoving[id], dispenser_classname, 100.0, entlist, 2)
+				 || find_sphere_class(g_PlayerMoving[id], "player", 20.0, entlist, 2)
+				 || find_sphere_class(g_PlayerMoving[id], "func_breakable", 20.0, entlist, 2)
+				 || check_entity_in_sphere(g_PlayerMoving[id], 100.0)
+				 || TraceCheckCollides(fOrigin, 35.0))
 				{
 					set_pev(g_PlayerMoving[id], pev_sequence, BUILD_DISPENSER_NO);
 					g_iPlantOk[id] = false;
@@ -555,44 +572,44 @@ public PlayerPreThink(id)
 				{
 					set_pev(g_PlayerMoving[id], pev_sequence, BUILD_DISPENSER_YES);
 					g_iPlantOk[id] = true;
-
-					while((entity = engfunc(EngFunc_FindEntityInSphere, entity, fOrigin, 100.0)) != 0)
-					{
-						if (!pev_valid(entity))
-							continue;
-						
-						pev(entity, pev_classname, classname, charsmax(classname));
-						pev(entity, pev_origin, tOrigin);
-						if (equali(classname, dispenser_classname))
-						{
-							set_pev(g_PlayerMoving[id], pev_sequence, BUILD_DISPENSER_NO);
-							g_iPlantOk[id] = false;
-							break;
-						} else
-						if (equali(classname, "player") && get_distance_f(fOrigin, tOrigin))
-						{
-							set_pev(g_PlayerMoving[id], pev_sequence, BUILD_DISPENSER_NO);
-							g_iPlantOk[id] = false;
-							break;
-						} else 
-						{
-							continue;
-						}
-					}
 				}
-				g_Timers[id][TIME_POST_THINK] = ftime;
+				g_Timers[id][TIME_POST_THINK] = ftime + 0.05;
 			}
 
-			if(ftime - 1.2 > g_Timers[id][TIME_PLANT_HUD])
+			if(ftime < g_Timers[id][TIME_PLANT_HUD])
 			{
 				// set_hudmessage(red = 200, green = 100, blue = 0, Float:x = -1.0, Float:y = 0.35, effects = 0, Float:fxtime = 6.0, Float:holdtime = 12.0, Float:fadeintime = 0.1, Float:fadeouttime = 0.2, channel = -1)
 				set_hudmessage(.red = 0,.green = 150, .blue = 255, .x =	0.04, .y = 0.60, .effects = 0, .fxtime = 6.0, .holdtime = 1.1, .fadeintime = 0.04, .fadeouttime = 0.04, 	.channel = -1);
 				show_hudmessage(id, "Press [E] to set the dispenser.");
 
-				g_Timers[id][TIME_PLANT_HUD] = ftime;
+				g_Timers[id][TIME_PLANT_HUD] = ftime + 1.2;
 			}
 		}
 	}
+	return FMRES_IGNORED;
+}
+
+stock check_entity_in_sphere(iEnt, Float:fRadius)
+{
+	new Float:fOrigin[3];
+	new id = -1;
+	new classname[33];
+	new solid;
+	pev(iEnt, pev_origin, fOrigin);
+
+	while((id = engfunc(EngFunc_FindEntityInSphere, id, fOrigin, fRadius)) > 0)
+	{
+		pev(id, pev_classname, classname, charsmax(classname));
+		if (!equali(classname, dispenser_classmove)
+		&&  !equali(classname, dispenser_classname)
+		&&  !equali(classname, "player"))
+		{
+			solid = pev(id, pev_solid);
+			if (solid != SOLID_NOT && solid != SOLID_TRIGGER)
+				return true;
+		}
+	}
+	return false;
 }
 
 public BuyDispenser(id)
@@ -646,7 +663,7 @@ public BuyDispenser(id)
 		return PLUGIN_HANDLED;
 	}
 
-	if(g_PlayerMoving[id])
+	if(g_PlayerMoving[id] > 0)
 	{
 		CheckFailure(id, fmt("%s ^4Dispenser ^3is being deployed. Please purchase after deploying.", PREFIX_CHAT));
 		return PLUGIN_HANDLED;
@@ -654,8 +671,8 @@ public BuyDispenser(id)
 
 	if(g_Cvars[CV_INSTANT_PLANT])
 	{
-		static Float:fOrigin[3]
-		get_origin_from_dist_player(id, 100.0, fOrigin);
+		static Float:fOrigin[3];
+		GetOriginFromDistPlayer(id, 100.0, fOrigin);
 
 		if(CreateDispanser(fOrigin, id))
 		{
@@ -690,7 +707,7 @@ stock GetGlobalCountDispenser(&TCount, &CTCount)
 	new iPlayers[MAX_PLAYERS], iNum;
 	get_players_ex(iPlayers, iNum, GetPlayers_ExcludeDead | GetPlayers_ExcludeHLTV);
 
-	for (new i = 0; i < iNum + 1; i++)
+	for (new i = 0; i < iNum; i++)
 	{
 		switch(cs_get_user_team(iPlayers[i]))
 		{
@@ -747,17 +764,15 @@ public CreateMoveEffect(id)
 {
 	static Float:fOrigin[3];
 	pev(id, pev_origin, fOrigin);
-	get_origin_from_dist_player(id, 128.0, fOrigin);
+	GetOriginFromDistPlayer(id, 128.0, fOrigin);
 
-	new iEnt;
-
-	iEnt = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "info_target"));
+	new iEnt = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "info_target"));
 
 	if(!pev_valid(iEnt))
 		return false;
 	
 	set_pev(iEnt, pev_classname, dispenser_classmove);
-	engfunc(EngFunc_SetModel, iEnt, g_PrecacheModels[MDL_BLUEPRINT]);
+	engfunc(EngFunc_SetModel, iEnt, g_DispenserModels[MDL_BLUEPRINT]);
 	set_pev(iEnt, pev_origin, fOrigin);
 	set_pev(iEnt, pev_solid, SOLID_NOT);
 	set_pev(iEnt, DISPENSER_OWNER, id);
@@ -765,7 +780,7 @@ public CreateMoveEffect(id)
 	set_pev(iEnt, pev_animtime, get_gametime());
 	set_pev(iEnt, pev_sequence, BUILD_DISPENSER_NO);
 
-	fm_set_rendering(iEnt, kRenderFxNone, 0, 0, 0, kRenderTransAdd, 255);
+	fm_set_rendering(iEnt, kRenderFxNone, Float:{0.0, 0.0, 0.0}, kRenderTransAdd, 255);
 	set_pev(iEnt, pev_nextthink, get_gametime() + 0.1);
 
 	g_PlayerMoving[id] = iEnt;
@@ -773,12 +788,8 @@ public CreateMoveEffect(id)
 	return true;
 }
 
-stock fm_set_rendering(entity, fx = kRenderFxNone, r = 255, g = 255, b = 255, render = kRenderNormal, amount = 16) {
-	new Float:RenderColor[3];
-	RenderColor[0] = float(r);
-	RenderColor[1] = float(g);
-	RenderColor[2] = float(b);
-
+stock fm_set_rendering(entity, fx = kRenderFxNone, Float:RenderColor[3], render = kRenderNormal, amount = 16) 
+{
 	set_pev(entity, pev_renderfx, fx);
 	set_pev(entity, pev_rendercolor, RenderColor);
 	set_pev(entity, pev_rendermode, render);
@@ -795,10 +806,47 @@ public fw_CmdStart(id, uc_handle, randseed)
 	static button; button = get_uc(uc_handle , UC_Buttons);
 	static oldbutton; oldbutton = pev(id, pev_oldbuttons);
 
-	if(button & IN_USE && !(oldbutton & IN_USE) && g_PlayerMoving[id] && g_iPlantOk[id])
-		xDispFinalCheck(id);
+	if(button & IN_USE && !(oldbutton & IN_USE))
+	{
+		if (g_PlayerMoving[id] && g_iPlantOk[id])
+		{
+			xDispFinalCheck(id);
+		} else 
+		{
+			new target;
+			new body;
+			get_user_aiming(id, target, body);
+
+			if(!pev_valid(target))
+				return FMRES_IGNORED;
+
+			new Float:vOrigin[3];
+			new Float:tOrigin[3];
+			// get potision. player and target.
+			pev(id, pev_origin, vOrigin);
+			pev(target, pev_origin, tOrigin);
+
+			// Distance Check. far 128.0 (cm?)
+			if(get_distance_f(vOrigin, tOrigin) > 128.0)
+				return FMRES_IGNORED;
+	
+			new entityName[MAX_NAME_LENGTH];
+			pev(target, pev_classname, entityName, charsmax(entityName));
+
+			// is target dipenser?
+			if(!equali(entityName, dispenser_classname))
+				return FMRES_IGNORED;
+			
+			DispenserMenu(id);
+		}
+	}
 
 	return FMRES_IGNORED;
+}
+
+public DispenserMenu(id)
+{
+	client_print_color(id, print_team_default, "%s [DEBUG] TODO. MENU CREATE.",PREFIX_CHAT);
 }
 
 public xDispFinalCheck(id)
@@ -806,16 +854,16 @@ public xDispFinalCheck(id)
 	static Float:fOrigin[3];
 	GetOriginFromDistPlayer(id, 128.0, fOrigin);
 
-	if(xCreateDispanser(fOrigin, id))
+	if(CreateDispanser(fOrigin, id))
 	{
-		client_print_color(id, print_team_default, "%s ^4Dispenser ^3plantado!", PREFIX_CHAT);
+		client_print_color(id, print_team_default, "%s ^4Dispenser ^3Planted!", PREFIX_CHAT);
 		DestroyPlayerMoveEntity(id);
-
+		g_iPlantOk[id] = false;
 		g_PlayerMoving[id] = -1;
 	}
 }
 
-public xAllowPlant(id)
+public AllowPlant(id)
 {
 	static Float:vTraceDirection[3], Float:vTraceEnd[3],Float:vOrigin[3];
 	
@@ -823,11 +871,14 @@ public xAllowPlant(id)
 	vOrigin[2] += 15;
 	velocity_by_aim(id, 128, vTraceDirection);
 	xs_vec_add(vTraceDirection, vOrigin, vTraceEnd);
-	
-	engfunc(EngFunc_TraceLine, vOrigin, vTraceEnd, DONT_IGNORE_MONSTERS, id, 0);
-	
+	static trace;
 	static Float:fFraction;
-	get_tr2(0, TR_flFraction, fFraction);
+	trace = create_tr2();
+	engfunc(EngFunc_TraceLine, vOrigin, vTraceEnd, DONT_IGNORE_MONSTERS, id, trace);
+	{
+		get_tr2(trace, TR_flFraction, fFraction);
+	}
+	free_tr2(trace);
 	
 	// -- We hit something!
 	if(fFraction < 1.0)
@@ -847,6 +898,7 @@ public DestroyPlayerMoveEntity(id)
 		if(pev_valid(iEnt))
 			RemoveEntity(iEnt);
 	}
+	g_PlayerMoving[id] = -1;
 }
 
 public DispenserTouch(iEnt, id)
@@ -854,7 +906,8 @@ public DispenserTouch(iEnt, id)
 	static Float:time;
 	time = get_gametime();
 
-	if(time - 2.5 > g_Timers[id][TIME_FLOOD_TOUCH])
+	if (is_valid_player(id))
+	if(time < g_Timers[id][TIME_FLOOD_TOUCH])
 	{
 		g_Timers[id][TIME_FLOOD_TOUCH] = time + 2.5;
 
@@ -927,9 +980,9 @@ public DispenserTouch(iEnt, id)
 			return PLUGIN_CONTINUE;
 
 		if(iOwner == id)
-			client_print_color(id, print_team_default, "%s ^3Você subiu o level do seu ^4Dispenser ^3para o level: ^4%d^3.", PREFIX_CHAT, iLevel);
+			client_print_color(id, print_team_default, "%s ^3Your ^4Dispenser ^3has been upgraded. level: ^4%d^3.", PREFIX_CHAT, iLevel);
 		else
-			client_print_color(iOwner, print_team_default, "%s ^1%n ^3subiu o level do seu ^4Dispenser ^3para o level: ^4%d^3.", PREFIX_CHAT, id, iLevel);
+			client_print_color(iOwner, print_team_default, "%s ^3The level of ^4Dispenser ^3in ^1%n ^3has been increased. level: ^4%d^3.", PREFIX_CHAT, id, iLevel);
 
 	}
 	return PLUGIN_CONTINUE;
@@ -1037,21 +1090,23 @@ public DispenserThink(iEnt)
 					}
 				}
 				// Recovery Armor.
-				if(pev(id, pev_armorvalue) < g_Cvars[CV_LVL1_MAX_ARMOR + (iLevel - 1)])
+				static CsArmorType:armortype;
+				static armor; armor = cs_get_user_armor(id, armortype);
+				if(armor < g_Cvars[CV_LVL1_MAX_ARMOR + (iLevel - 1)])
 				{
 					recovery = true;
-					set_pev(id, pev_armorvalue, floatmin(pev(id, pev_armorvalue) + float(g_Cvars[CV_LVL1_AMOUNT_ARMOR + (iLevel - 1)]), float(g_Cvars[CV_LVL1_MAX_ARMOR + (iLevel - 1)])));
+					cs_set_user_armor(id, min(armor + g_Cvars[CV_LVL1_AMOUNT_ARMOR + (iLevel - 1)], g_Cvars[CV_LVL1_MAX_ARMOR + (iLevel - 1)]), CS_ARMOR_VESTHELM);
 				}
 			}
 
 			// Check give money time think time.
-			if (time - g_Cvars[CV_GIVE_MONEY_TIME] > g_Timers[id][TIME_GIVE_MONEY])
+			if (time < g_Timers[id][TIME_GIVE_MONEY])
 			{
 				// If inside give money radius.
 				if (distance <= g_Cvars[CV_GIVE_MONEY_DISTANCE])
 					cs_set_user_money(id, cs_get_user_money(id) + random_num(g_Cvars[CV_GIVE_MONEY_MIN], g_Cvars[CV_GIVE_MONEY_MAX]));
 
-				g_Timers[id][TIME_GIVE_MONEY] = time;
+				g_Timers[id][TIME_GIVE_MONEY] = time + g_Cvars[CV_GIVE_MONEY_TIME];
 			}
 
 			if (pev_valid(id) == 2)
@@ -1059,7 +1114,7 @@ public DispenserThink(iEnt)
 				if (iLevel == 4 || g_Cvars[CV_GIVE_AMMO_ALL_LVL])
 				{
 					// Check give money ammo think time.
-					if (time - g_Cvars[CV_GIVE_AMMO_TIME] > g_Timers[id][TIME_GIVE_AMMO])
+					if (time < g_Timers[id][TIME_GIVE_AMMO])
 					{
 						// If inside give money radius.
 						if (distance <= g_Cvars[CV_GIVE_AMMO_DISTANCE])
@@ -1073,18 +1128,18 @@ public DispenserThink(iEnt)
 
 							currentWpnEntId = get_pdata_cbase(id, 373);	// Global Weapon Entity ID.
 							currentWpn		= get_user_weapon(id);		// Current Weapon Class.
-
-							currentAmmo 	= cs_get_weapon_ammo(currentWpnEntId);
-							currentBPAmmo 	= cs_get_user_bpammo(id, currentWpn);
-
-							newAmmo 		= currentAmmo   + random_num(g_Cvars[CV_GIVE_AMMO_MIN], g_Cvars[CV_GIVE_AMMO_MAX]);
-							newBPAmmo 		= currentBPAmmo + random_num(g_Cvars[CV_GIVE_AMMO_MIN], g_Cvars[CV_GIVE_AMMO_MAX]);
-								
-							cs_set_weapon_ammo(currentWpnEntId, min(newAmmo, g_WeaponsAmmo[currentWpn][0]));
-							cs_set_user_bpammo(id, currentWpn, min(newBPAmmo, g_WeaponsAmmo[currentWpn][1]));
-							emit_sound(id, CHAN_ITEM, g_BulletsSounds[random_num(0, charsmax(g_BulletsSounds))], 0.3, ATTN_NORM, 0, PITCH_NORM);
+							if (currentWpn != CSW_KNIFE )
+							{
+								currentAmmo 	= cs_get_weapon_ammo(currentWpnEntId);
+								currentBPAmmo 	= cs_get_user_bpammo(id, currentWpn);
+								newAmmo 		= currentAmmo   + random_num(g_Cvars[CV_GIVE_AMMO_MIN], g_Cvars[CV_GIVE_AMMO_MAX]);
+								newBPAmmo 		= currentBPAmmo + random_num(g_Cvars[CV_GIVE_AMMO_MIN], g_Cvars[CV_GIVE_AMMO_MAX]);
+								cs_set_weapon_ammo(currentWpnEntId, min(newAmmo, g_WeaponsAmmo[currentWpn][0]));
+								cs_set_user_bpammo(id, currentWpn, min(newBPAmmo, g_WeaponsAmmo[currentWpn][1]));
+								emit_sound(id, CHAN_ITEM, g_BulletsSounds[random_num(0, charsmax(g_BulletsSounds))], 0.3, ATTN_NORM, 0, PITCH_NORM);
+							}
 						}
-						g_Timers[id][TIME_GIVE_AMMO] = time;
+						g_Timers[id][TIME_GIVE_AMMO] = time + g_Cvars[CV_GIVE_AMMO_TIME];
 					}
 				}
 			}
@@ -1092,11 +1147,7 @@ public DispenserThink(iEnt)
 			// Show line.
 			if (recovery && g_Cvars[CV_SHOW_LINE])
 			{
-				static color[3];
-				color[0] = (iTeam == CS_TEAM_T) ? 255 : 0;
-				color[1] = 0;
-				color[2] = (iTeam == CS_TEAM_CT) ? 255 : 0;
-				UTIL_BeamEnts(fOriginTarget, fOrigin, color, g_PrecacheSprites[SPR_LASER], 40, 0, 1);
+				UTIL_BeamEnts(fOriginTarget, fOrigin, g_Color[iTeam], g_PrecacheSprites[SPR_LASER], 40, 0, 1);
 			}
 			continue;
 		} else
@@ -1113,6 +1164,10 @@ public DispenserThink(iEnt)
 			targetTeam = CsTeams:pev(id, DISPENSER_TEAM);
 			// Skip. Enemies.
 			if (targetTeam != iTeam)
+				continue;
+
+			// Skip. same one.
+			if (id == iEnt)
 				continue;
 			
 			// Skip. Can't Look Dispenser.
@@ -1134,11 +1189,7 @@ public DispenserThink(iEnt)
 				AmountHP = floatmin(float(g_Cvars[CV_LVL1_AMOUNT_HP + (pev(id, DISPENSER_LEVEL) - 1)]), float(g_Cvars[CV_LVL1_DISPENSER_HEALTH + (pev(id, DISPENSER_LEVEL) - 1)]));
 				set_pev(iEnt, pev_health, AmountHP);
 
-				static color[3];
-				color[0] = (iTeam == CS_TEAM_T) ? 255 : 0;
-				color[1] = 0;
-				color[2] = (iTeam == CS_TEAM_CT) ? 255 : 0;
-				UTIL_BeamEnts(fOriginTarget, fOrigin, color, g_PrecacheSprites[SPR_LASER], 40, 0, 1);
+				UTIL_BeamEnts(fOriginTarget, fOrigin, g_Color[iTeam], g_PrecacheSprites[SPR_LASER], 40, 0, 1);
 			}
 		}
 	}
@@ -1238,29 +1289,25 @@ public fw_TraceLinePost(Float:v1[3], Float:v2[3], noMonsters, id)
 	if(!equal(szClassname, dispenser_classname))
 		return FMRES_IGNORED;
 
-	new iTeam; iTeam = pev(iHitEnt, DISPENSER_TEAM);
+	new CsTeams:iTeam = CsTeams:pev(iHitEnt, DISPENSER_TEAM);
 
-	if(get_user_team(id) != iTeam)
+	if(cs_get_user_team(id) != iTeam)
 		return FMRES_IGNORED;
 
-	new iHealth;
-	iHealth = pev(iHitEnt, pev_health);
+	new iHealth = pev(iHitEnt, pev_health);
 
 	if(iHealth <= 0)
 		return FMRES_IGNORED;
 
-	new iOwner; iOwner = pev(iHitEnt, DISPENSER_OWNER);
+	new iOwner = pev(iHitEnt, DISPENSER_OWNER);
 
 	if(!is_user_connected(iOwner))
 		return FMRES_IGNORED;
 
-	new szName[32];
-	get_user_name(iOwner, szName, charsmax(szName));
-
-	new iLevel; iLevel = pev(iHitEnt, DISPENSER_LEVEL);
+	new iLevel = pev(iHitEnt, DISPENSER_LEVEL);
 
 	set_dhudmessage(255, 255, 255, -1.0, 0.65, 0, 0.1, 1.1, 0.0, 0.0);
-	show_dhudmessage(id, "Proprietário: %s^nVida: %s^nLevel: %d", szName, xAddPoint(iHealth), iLevel);
+	show_dhudmessage(id, "Owner: %n^nHealth: %s^nLevel: %d", iOwner, xAddPoint(iHealth), iLevel);
 	
 	return FMRES_IGNORED;
 }
@@ -1350,12 +1397,13 @@ public ham_TakeDamagePost(ent, idinflictor, idattacker, Float:damage, damagebits
 
 			if(idattacker == iOwner)
 			{
-				client_print_color(iOwner, print_team_default, "%s ^3Você destruiu seu próprio ^4Dispenser^3.", PREFIX_CHAT);
+				client_print_color(iOwner, print_team_default, "%s ^3You have destroyed your own ^4Dispenser^3.", PREFIX_CHAT);
 			}
 			else
 			{
-				client_print_color(0, print_team_default, "%s ^1%s ^3destruiu o ^4Dispenser ^3de ^1%s ^3e ganhou ^4$: %s ^3de dinheiro.", PREFIX_CHAT, szName, szNameOwner, xAddPoint(get_pcvar_num(g_Cvars[CVAR_BONUS_DESTROY])));
-				cs_set_user_money(idattacker, cs_get_user_money(idattacker) + get_pcvar_num(g_Cvars[CVAR_BONUS_DESTROY]));
+				client_print_color(0, print_team_default, "%s ^1%n ^3destroyed the ^4Dispenser of ^1%n ^3and won $: ^4%s ^3of money.", 
+						PREFIX_CHAT, idattacker, iOwner, xAddPoint(g_Cvars[CV_DESTRUCTION_BONUS]));
+				cs_set_user_money(idattacker, cs_get_user_money(idattacker) + g_Cvars[CV_DESTRUCTION_BONUS]);
 			}
 
 			DestroyEntityDispenser(ent);
@@ -1368,27 +1416,23 @@ public ham_TakeDamagePost(ent, idinflictor, idattacker, Float:damage, damagebits
 	return HAM_IGNORED;
 }
 
-stock bool:xCreateDispanser(Float:origin[3], creator)
+stock bool:CreateDispanser(Float:origin[3], creator)
 {
-	if(get_pcvar_num(g_Cvars[CVAR_INSTANT_PLANT]))
+	if(g_Cvars[CV_INSTANT_PLANT])
 	{
 		static xEntList[3];
-
-		if(find_sphere_class(creator, dispenser_classname, 130.0, xEntList, charsmax(xEntList)) || TraceCheckCollides(origin, 35.0) || !(pev(creator, pev_flags) & FL_ONGROUND))
+		if (find_sphere_class(creator, dispenser_classname, 130.0, xEntList, charsmax(xEntList))
+		 || TraceCheckCollides(origin, 35.0)
+		 || !(pev(creator, pev_flags) & FL_ONGROUND))
 		{
-			client_print_color(creator, print_team_default, "%s ^3Adicione o ^4dispenser ^3longe dos outros e não o encoste em paredes.", PREFIX_CHAT);
-			//client_cmd(creator, "spk %s", g_DispSndFail)
-			
+			client_print_color(creator, print_team_default, "%s ^3Add the ^4Dispenser ^3away from others and do not lean it against walls.", PREFIX_CHAT);
 			return false;
 		}
-	}
-	else
+	} else
 	{
-		if(!xAllowPlant(creator))
+		if(!AllowPlant(creator))
 		{
-			client_print_color(creator, print_team_default, "%s ^3Mire para o chão ^1PLANO ^3e perto para poder adicionar o ^4Dispenser^3.", PREFIX_CHAT);
-			//client_cmd(creator, "spk %s", g_DispSndFail)
-
+			client_print_color(creator, print_team_default, "%s ^3Aim for the ^1plane ground ^3and close so you can add the ^4Dispenser^3.", PREFIX_CHAT);
 			return false;
 		}
 	}
@@ -1396,13 +1440,13 @@ stock bool:xCreateDispanser(Float:origin[3], creator)
 	if(engfunc(EngFunc_PointContents, origin) != CONTENTS_EMPTY)
 		return false;
 
-	new ent; ent = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "func_breakable"));
+	new ent = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "func_breakable"));
 
 	if(!pev_valid(ent))
 		return false;
 
-	new iLevel; iLevel = 1;
-
+	new iLevel = 1;
+	new CsTeams:iTeam  = cs_get_user_team(creator);
 	set_pev(ent, pev_classname, dispenser_classname);
 
 	engfunc(EngFunc_SetModel, ent, g_DispenserModels[MDL_DISPENSER]);
@@ -1414,74 +1458,39 @@ stock bool:xCreateDispanser(Float:origin[3], creator)
 	set_pev(ent, pev_movetype, MOVETYPE_TOSS);
 	set_pev(ent, pev_health, float(g_Cvars[CV_LVL1_DISPENSER_HEALTH]));
 	set_pev(ent, pev_takedamage, 1.0);
-//	set_pev(ent, DISPENSER_VIP, g_IsVip[creator])
 	set_pev(ent, DISPENSER_OWNER, creator);
 	set_pev(ent, DISPENSER_LEVEL, iLevel);
-	set_pev(ent, DISPENSER_TEAM, cs_get_user_team(creator));
+	set_pev(ent, DISPENSER_TEAM, iTeam);
 	
 
-	if(get_pcvar_num(g_Cvars[CVAR_IDLE_SOUND]))
+	if(g_Cvars[CV_IDLE_SOUND])
 	{
-		xDispenserSndIdle(ent);
-		set_task(1.9, "xDispenserSndIdle", ent, _, _, "b");
+		DispenserIdleSound(ent);
+		set_task(1.9, "DispenserIdleSound", ent + TASK_IDLE_SOUND, _, _, "b");
 	}
 
-	if(get_pcvar_num(g_Cvars[CVAR_LIGHT]))
-		set_task(0.1, "xDispenserLight", ent, _, _, "b");
+	if(g_Cvars[CV_LIGHT])
+		set_task(0.1, "DispenserLight", ent + TASK_LIGHT, _, _, "b");
 
-	switch(cs_get_user_team(creator))
+	switch (iTeam)
 	{
 		case CS_TEAM_T:
-		{
-			g_BeamColor[creator][0] = 255;
-			g_BeamColor[creator][1] = 0;
-			g_BeamColor[creator][2] = 0;
-
-			if(get_pcvar_num(g_Cvars[CVAR_ONEMODEL]))
-				set_pev(ent, pev_body, 4);
-			else
-			{
-//				if(!g_IsVip[creator])
-					set_pev(ent, pev_body, 4);
-			}
-
-			if(get_pcvar_num(g_Cvars[CVAR_GLOW]))
-				fm_set_rendering(ent, kRenderFxGlowShell, 255, 0, 0, kRenderNormal, 10);
-			
-			//xLimitGlobal[0]++
-		}
-
+			set_pev(ent, pev_body, 4);
 		case CS_TEAM_CT:
-		{
-			g_BeamColor[creator][0] = 0;
-			g_BeamColor[creator][1] = 0;
-			g_BeamColor[creator][2] = 255;
-		
-			if(get_pcvar_num(g_Cvars[CVAR_ONEMODEL]))
-				set_pev(ent, pev_body, 0);
-			else
-			{
-//				if(!g_IsVip[creator])
-					set_pev(ent, pev_body, 0);
-			}
-
-			if(get_pcvar_num(g_Cvars[CVAR_GLOW]))
-				fm_set_rendering(ent, kRenderFxGlowShell, 0, 0, 255, kRenderNormal, 10);
-			
-			//xLimitGlobal[1]++
-		}
+			set_pev(ent, pev_body, 0);
 	}
+	if (g_Cvars[CV_GLOW])
+		fm_set_rendering(ent, kRenderFxGlowShell, g_Color[iTeam], kRenderNormal, 10);
 
-	emit_sound(ent, CHAN_STATIC, g_DispActive, VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
+	emit_sound(ent, CHAN_STATIC, g_DispenserSound[SND_ACTIVE], VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
 
-	g_DispPlayerCount[creator] ++;
-	
 	set_pev(ent, pev_nextthink, get_gametime() + 0.1);
 
+	ArrayPushCell(g_Dispensers[creator], ent);
 	return true;
 }
 
-public xDispenserSndIdle(ent)
+public DispenserIdleSound(ent)
 {
 	if(!pev_valid(ent))
 	{
@@ -1491,10 +1500,10 @@ public xDispenserSndIdle(ent)
 		return;
 	}
 
-	emit_sound(ent, CHAN_ITEM, g_DispSndIdle, 0.35, ATTN_IDLE, 0, PITCH_NORM);
+	emit_sound(ent, CHAN_ITEM, g_DispenserSound[SND_IDLE], 0.35, ATTN_IDLE, 0, PITCH_NORM);
 }
 
-public xDispenserLight(ent)
+public DispenserLight(ent)
 {
 	if(!pev_valid(ent))
 	{
@@ -1563,20 +1572,23 @@ stock bool:UTIL_IsVisible(index, entity, ignoremonsters = 0)
 	xs_vec_add(flStart, flDest, flStart);
 
 	pev(entity, pev_origin, flDest);
-	engfunc(EngFunc_TraceLine, flStart, flDest, ignoremonsters, index, 0);
+	new trace = create_tr2();
+	engfunc(EngFunc_TraceLine, flStart, flDest, ignoremonsters, index, trace);
 
 	new Float:flFraction;
-	get_tr2(0, TR_flFraction, flFraction);
+	get_tr2(trace, TR_flFraction, flFraction);
 
-	if(flFraction == 1.0 || get_tr2(0, TR_pHit) == entity)
+	if(flFraction == 1.0 || get_tr2(trace, TR_pHit) == entity)
 	{
+		free_tr2(trace);
 		return true;
 	}
+	free_tr2(trace);
 
 	return false;
 }
 
-stock UTIL_BeamEnts(Float:flStart[3], Float:flEnd[3], rgb[3], sprite, width, ampl, speed)
+stock UTIL_BeamEnts(Float:flStart[3], Float:flEnd[3], Float:rgb[3], sprite, width, ampl, speed)
 {
 	engfunc(EngFunc_MessageBegin, MSG_PVS, SVC_TEMPENTITY, flStart);
 	write_byte(TE_BEAMPOINTS);
@@ -1592,9 +1604,9 @@ stock UTIL_BeamEnts(Float:flStart[3], Float:flEnd[3], rgb[3], sprite, width, amp
 	write_byte(1);		// life
 	write_byte(width);	// widh
 	write_byte(ampl);	// noise
-	write_byte(rgb[0]);	//R
-	write_byte(rgb[1]);	//G
-	write_byte(rgb[2]);	//B
+	write_byte(floatround(rgb[0]));	//R
+	write_byte(floatround(rgb[1]));	//G
+	write_byte(floatround(rgb[2]));	//B
 	write_byte(255);	// def: 130
 	write_byte(speed);	// def: 30
 	message_end();
@@ -1631,9 +1643,9 @@ stock bool:TraceCheckCollides(Float:origin[3], const Float:BOUNDS)
 	static i, j;
 	for(i = 0; i < 8; i++)
 	{
-		if(point_contents(traceEnds[i]) != CONTENTS_EMPTY)
+		if(engfunc(EngFunc_PointContents, origin) != CONTENTS_EMPTY)
 			return true;
-
+		
 		hitEnt = trace_line(0, origin, traceEnds[i], traceHit);
 
 		if(hitEnt != 0)
@@ -1660,7 +1672,7 @@ stock DispenserExplode(const Float:originF[3], head, sprites, life, tamanho, vel
 	engfunc(EngFunc_WriteCoord, originF[0]); // X
 	engfunc(EngFunc_WriteCoord, originF[1]); // Y
 	engfunc(EngFunc_WriteCoord, originF[2]+head); // Z
-	write_short(g_PrecSprFlare3);
+	write_short(g_PrecacheSprites[SPR_FLARE]);
 	write_byte(sprites); // quantas sprites vai sair...
 	write_byte(life); // life
 	write_byte(tamanho); // tamanho
@@ -1712,7 +1724,7 @@ stock xAddPoint(number)
 	{
 		if(i != 0 && ((len - i) %3 == 0))
 		{
-			add(str2, charsmax(str2), ".", 1);
+			add(str2, charsmax(str2), ",", 1);
 			count++;
 			add(str2[i+count], 1, str[i], 1);
 		}
